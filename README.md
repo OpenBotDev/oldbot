@@ -1,4 +1,7 @@
 
+# Openbot
+
+
 # Solana Sniper Bot (Poc)
 This code is written as proof of concept to demonstrate how we can buy new tokens immediately after the liquidity pool is open for trading.
 
@@ -76,7 +79,7 @@ To collect more information on an issue, please change `LOG_LEVEL` to `debug`.
 ![wsol](wsol.png)
 
 ## Contact
-[![](https://img.shields.io/discord/1201826085655023616?color=5865F2&logo=Discord&style=flat-square)](https://discord.gg/xYUETCA2aP)
+[![](https://img.shields.io/discord/1201826085655023616?color=5865F2&logo=Discord&style=flat-square)](https://discord.gg/8ZCs7pR8Hk)
 
 ## Disclaimer
 

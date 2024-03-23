@@ -79,7 +79,7 @@ To collect more information on an issue, please change `LOG_LEVEL` to `debug`.
 ![wsol](wsol.png)
 
 ## Contact
-[![](https://img.shields.io/discord/1201826085655023616?color=5865F2&logo=Discord&style=flat-square)](https://discord.gg/8ZCs7pR8Hk)
+[![](https://img.shields.io/discord/1221054720530186240?color=5865F2&logo=Discord&style=flat-square)](https://discord.gg/8ZCs7pR8Hk)
 
 ## Disclaimer
 

@@ -1,5 +1,5 @@
 /**
- * Solana Sniper Bot 
+ * Openbot Solana Bot 
  */
 
 import {
@@ -149,8 +149,8 @@ async function init(): Promise<void> {
     quoteTokenAssociatedAddress = tokenAccount.pubkey;
   }
   catch (error) {
-    logger.error('error reading tokens');
-    process.exit();
+    logger.error('error reading tokens. No tokens exist');
+    //process.exit();
   }
 
 
@@ -417,16 +417,35 @@ function shouldBuy(key: string): boolean {
 // subscribe to changes from a pool
 async function subscribeToRaydiumPools(connection: any, runTimestamp: any) {
 
+  console.log('subscribeToRaydiumPools');
+  let events = 0;
   const raydiumSubscriptionId = connection.onProgramAccountChange(
     RAYDIUM_LIQUIDITY_PROGRAM_ID_V4,
     async (updatedAccountInfo: any) => {
       const key = updatedAccountInfo.accountId.toString();
+      events++;
+      console.log('change. key ' + key);
+      console.log('events. ' + events);
       const poolState = LIQUIDITY_STATE_LAYOUT_V4.decode(updatedAccountInfo.accountInfo.data);
+      //console.log('change. poolState ' + poolState);
       const poolOpenTime = parseInt(poolState.poolOpenTime.toString());
+
+      console.log('poolOpenTime ' + poolOpenTime);
+      const currentDate = new Date();
+      const timeDifference = currentDate.getTime() - poolOpenTime;
+
+      // Convert the difference into hours and minutes
+      const differenceInHours = Math.floor(timeDifference / (1000 * 60 * 60));
+      const differenceInMinutes = Math.floor((timeDifference % (1000 * 60 * 60)) / (1000 * 60));
+
+      console.log(`Hours: ${differenceInHours}, Minutes: ${differenceInMinutes}`);
+
       const existing = existingLiquidityPools.has(key);
 
       if (poolOpenTime > runTimestamp && !existing) {
+        console.log('new pool');
         existingLiquidityPools.add(key);
+        console.log('#pools ' + existingLiquidityPools.size);
         const _ = processRaydiumPool(updatedAccountInfo.accountId, poolState);
       }
     },
@@ -539,15 +558,15 @@ const runListener = async () => {
   const runTimestamp = Math.floor(new Date().getTime() / 1000);
 
   const raydiumSubscriptionId = await subscribeToRaydiumPools(solanaConnection, runTimestamp);
-  logger.info(`Listening for raydium pool changes: ${raydiumSubscriptionId}`);
+  logger.info(`Listening for raydium pool changes. (Subscription ID: ${raydiumSubscriptionId})`);
 
   const openBookSubscriptionId = await subscribeToOpenbook(solanaConnection, runTimestamp);
-  logger.info(`Listening for openbook changes: ${openBookSubscriptionId}`);
+  logger.info(`Listening for openbook changes. (Subscription ID:  ${openBookSubscriptionId})`);
 
 
   if (AUTO_SELL) {
     const walletSubscriptionId = await subscribeAutosell(solanaConnection);
-    logger.info(`Listening for wallet changes: ${walletSubscriptionId}`);
+    logger.info(`Listening for wallet changes. (Subscription ID: ${walletSubscriptionId})`);
   }
 
   if (USE_SNIPE_LIST) {
@@ -555,4 +574,19 @@ const runListener = async () => {
   }
 };
 
-runListener();
+const express = require('express');
+const app = express();
+const port = 3000; // You can use any port that's available
+
+app.get('/', (req, res) => {
+  const message = 'Hello from Express!';
+  console.log(message);
+  res.send(message);
+});
+
+app.listen(port, () => {
+  console.log(`Example app listening at http://localhost:${port}`);
+});
+
+
+//runListener();

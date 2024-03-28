@@ -224,7 +224,7 @@ async function getWalletBalance(connection: any) {
 
 const runListener = async () => {
     // connect to the network and listen to events
-    logEntry('connect network');
+    logger.info('connect network');
     try {
         solanaConnection = new Connection(RPC_ENDPOINT, {
             wsEndpoint: RPC_WEBSOCKET_ENDPOINT,
@@ -239,34 +239,12 @@ const runListener = async () => {
     const runTimestamp = Math.floor(new Date().getTime() / 1000);
 
     const raydiumSubscriptionId = await subscribeToRaydiumPools(solanaConnection, runTimestamp);
-    logEntry(`Listening for raydium pool changes. (Subscription ID: ${raydiumSubscriptionId})`);
+    logger.info(`Listening for raydium pool changes. (Subscription ID: ${raydiumSubscriptionId})`);
 
     // const openBookSubscriptionId = await subscribeToOpenbook(solanaConnection, runTimestamp);
     // logger.info(`Listening for openbook changes. (Subscription ID:  ${openBookSubscriptionId})`);
 
 };
-
-const express = require('express');
-const app = express();
-const port = 3000; // You can use any port that's available
-
-logEntry('Application started');
-
-app.get('/', (req, res) => {
-    const message = 'Openbot!';
-    console.log(message);
-    res.send(message);
-});
-
-app.get('/logs', (req: Request, res: Response) => {
-    res.setHeader('Content-Type', 'application/json');
-    res.end(JSON.stringify(logs));
-
-});
-
-app.listen(port, () => {
-    console.log(`app listening at http://localhost:${port}`);
-});
 
 
 runListener();

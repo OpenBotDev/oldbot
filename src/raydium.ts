@@ -54,7 +54,8 @@ interface Pool {
     launchTime: number;
     swapcount: number;
 }
-let lpools: Map<string, Pool> = new Map<string, Pool>();
+let older_pools: Map<string, Pool> = new Map<string, Pool>();
+let recent_pools: Map<string, Pool> = new Map<string, Pool>();
 
 let existingOpenBookMarkets: Set<string> = new Set<string>();
 
@@ -87,7 +88,8 @@ async function subscribeToRaydiumPools(connection: any, startTimestamp: any) {
     //     }
     // }, 5000); // seconds
 
-    const reportTime = 30000;
+    const reportTime = 10000;
+    const waitTime = 30000;
 
     setTimeout(() => {
         if (events === 0) {
@@ -95,80 +97,103 @@ async function subscribeToRaydiumPools(connection: any, startTimestamp: any) {
             process.exit()
             return;
         }
-    }, reportTime); // seconds
+    }, waitTime); // seconds
 
-    let lpools: Map<string, Pool> = new Map<string, Pool>();
 
     setInterval(() => {
-        //logger.info('Signature count: ' + this.logcounter);
-        //logger.info('Signature count with errors: ' + this.logcounter_error);
-        //logger.info('Pools Created count: ' + this.poolsFound);
         //TODO pools bought
         //TODO pools skipped
-        //logger.info('Event count: ' + this.poolsFound);
 
         const currentDate = new Date();
-        const t = currentDate.getTime() / reportTime;
+        const t = currentDate.getTime() / 1000;
         const delta = (t - startTimestamp);
 
-        logger.info('Event count: ' + events);
-        logger.info('Events per sec: ' + events / delta);
-        logger.info('Tracking Pools: ' + lpools.size);
-        // let p = this.logcounter_error / this.logcounter;
-        // Log.info('% errors: ' + p);
+        logger.info('Seconds since start: ' + delta.toFixed(0));
+        logger.info('Total event count: ' + events);
+        logger.info('Events per sec: ' + (events / delta).toFixed(0));
+        logger.info('New pools since start: ' + recent_pools.size);
+        logger.info('Older Pools: ' + older_pools.size);
+
     }, reportTime); // seconds
+
+    //state
+    //https://github.com/raydium-io/raydium-amm/blob/master/program/src/state.rs#L311
 
     const raydiumSubscriptionId = connection.onProgramAccountChange(
         RAYDIUM_LIQUIDITY_PROGRAM_ID_V4,
+        //callback
         async (updatedAccountInfo: any) => {
             try {
+                //console.log('updatedAccountInfo ' + updatedAccountInfo.accountInfo.data);
                 const key = updatedAccountInfo.accountId.toString();
                 events++;
 
-                const existing = lpools.has(key);
-                if (existing) {
-                    //known pool
-                    //swapcount[key]++;
-                    const pool = lpools.get(key); // Retrieve the pool object
-                    if (pool) { // Check if the pool object is not undefined
-                        pool.swapcount++; // Increment swapcount
-                        lpools.set(key, pool); // Re-set the pool object back into the Map (may be optional depending on use-case)
+                const known_pool = older_pools.has(key) || recent_pools.has(key);
+
+                const poolState1 = LIQUIDITY_STATE_LAYOUT_V4.decode(updatedAccountInfo.accountInfo.data);
+                logger.info('status ' + poolState1.status);
+                logger.info('nonce ' + poolState1.nonce);
+                logger.info('maxOrder ' + poolState1.maxOrder);
+                logger.info('depth ' + poolState1.depth);
+                logger.info('state ' + poolState1.state);
+                logger.info('swapBaseInAmount ' + poolState1.swapBaseInAmount);
+
+                if (known_pool) {
+                    if (older_pools.has(key)) {
+
+                        //known pool
+                        //swapcount[key]++;
+                        // const pool = older_pools.get(key); // Retrieve the pool object
+                        // if (pool) { // Check if the pool object is not undefined
+                        //     pool.swapcount++; // Increment swapcount
+                        //     older_pools.set(key, pool); // Re-set the pool object back into the Map (may be optional depending on use-case)
+                        // }
+
                     }
 
-                } else {
+                    if (recent_pools.has(key)) {
+                        const pool = recent_pools.get(key);
+                        if (pool) { // Check if the pool object is not undefined
+                            pool.swapcount++; // Increment swapcount
+                            recent_pools.set(key, pool);
+                            logger.info('swap for recent pool ' + key);
+                        }
+                    }
+                }
 
-                    //swapcount[key] = 1;
+                else {
 
-                    //logger.info('change. key ' + key);
-                    //logger.info('events. ' + events);
+                    //NEW POOL
+
                     const poolState = LIQUIDITY_STATE_LAYOUT_V4.decode(updatedAccountInfo.accountInfo.data);
                     //console.log('change. poolState ' + poolState);
                     const poolOpenTime = parseInt(poolState.poolOpenTime.toString());
 
-                    lpools.set(key, { address: key, launchTime: poolOpenTime, swapcount: 0 });
-
+                    //recent_pools.set(key, { address: key, launchTime: poolOpenTime, swapcount: 0 });
 
                     const currentDate = new Date();
                     const t = currentDate.getTime() / 1000;
-                    const delta = (t - poolOpenTime);
+                    const delta_seconds = (t - poolOpenTime);
 
-                    const differenceInHours = Math.floor(delta / (60 * 60));
-                    const differenceInMinutes = Math.floor((delta % (60 * 60)) / 60);
-
-                    //const since = poolOpenTime - startTimestamp;
+                    const differenceInHours = Math.floor(delta_seconds / (60 * 60));
+                    const differenceInMinutes = Math.floor((delta_seconds % (60 * 60)) / 60);
 
                     // const poolSize = new TokenAmount(quoteToken, poolState.swapQuoteInAmount, true);
                     // logger.info(`Processing pool: ${id.toString()} with ${poolSize.toFixed()} ${quoteToken.symbol} in liquidity`);
 
+                    if (delta_seconds < 300) {
+                        recent_pools.set(key, { address: key, launchTime: poolOpenTime, swapcount: 0 });
 
-                    if (delta < 120) {
-                        logger.info(`New pool\n${key} \n${delta}     ${differenceInHours} : ${differenceInMinutes}`);
-                        logger.info(`H: ${differenceInHours} : ${differenceInMinutes}`);
-                        logger.info(`${t}    ${poolOpenTime} ${delta}`);
+                        logger.info(`New pool ${key}`);
+                        //logger.info(`H: ${differenceInHours} : ${differenceInMinutes}`);
+                        logger.info(`age: ${delta_seconds.toFixed(0)}`);
                         //lpools.add(key);
-                        logger.info('#pools ' + lpools.size);
+                        //logger.info('#pools ' + lpools.size);
                         //TODO
                         //const _ = processRaydiumPool(updatedAccountInfo.accountId, poolState);
+                    } else {
+                        logger.info(`Older pool ${key}`);
+                        older_pools.set(key, { address: key, launchTime: poolOpenTime, swapcount: 0 });
                     }
                 }
 
@@ -178,6 +203,7 @@ async function subscribeToRaydiumPools(connection: any, startTimestamp: any) {
             }
         },
         commitment,
+        //filter
         [
             { dataSize: LIQUIDITY_STATE_LAYOUT_V4.span },
             {

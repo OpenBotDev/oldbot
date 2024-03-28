@@ -73,6 +73,8 @@ let quoteMinPoolSizeAmount: TokenAmount;
 
 let snipeList: string[] = [];
 
+let events = 0;
+
 async function init(): Promise<void> {
   logger.level = LOG_LEVEL;
 
@@ -127,6 +129,10 @@ async function init(): Promise<void> {
   const tokenAccount = tokenAccounts.find((acc) => acc.accountInfo.mint.toString() === quoteToken.mint.toString())!;
 
   if (!tokenAccount) {
+    logger.error('token accounts ' + tokenAccounts.length);
+    for (const ta of tokenAccounts) {
+      logger.error(ta);
+    }
     throw new Error(`No ${quoteToken.symbol} token account found in wallet: ${wallet.publicKey}`);
   }
 
@@ -411,12 +417,37 @@ function shouldBuy(key: string): boolean {
   return USE_SNIPE_LIST ? snipeList.includes(key) : true;
 }
 
-const runListener = async () => {
-  await init();
-  const runTimestamp = Math.floor(new Date().getTime() / 1000);
+function listenPools(runTimestamp: number) {
+
+  const reportTime = 10000;
+  const waitTime = 30000;
+
+  setInterval(() => {
+
+    const currentDate = new Date();
+    const t = currentDate.getTime() / 1000;
+    const delta = (t - runTimestamp);
+
+    logger.info('Seconds since start: ' + delta.toFixed(0));
+    logger.info('Total event count: ' + events);
+    logger.info('Events per sec: ' + (events / delta).toFixed(0));
+
+  }, reportTime); // seconds
+
+  setTimeout(() => {
+    if (events === 0) {
+      logger.warn('No events received from Node within the expected timeframe.');
+      process.exit()
+      return;
+    }
+  }, waitTime); // seconds
+
+
   const raydiumSubscriptionId = solanaConnection.onProgramAccountChange(
     RAYDIUM_LIQUIDITY_PROGRAM_ID_V4,
     async (updatedAccountInfo) => {
+      events++;
+
       const key = updatedAccountInfo.accountId.toString();
       const poolState = LIQUIDITY_STATE_LAYOUT_V4.decode(updatedAccountInfo.accountInfo.data);
       const poolOpenTime = parseInt(poolState.poolOpenTime.toString());
@@ -426,6 +457,7 @@ const runListener = async () => {
         existingLiquidityPools.add(key);
         const _ = processRaydiumPool(updatedAccountInfo.accountId, poolState);
       }
+
     },
     COMMITMENT_LEVEL,
     [
@@ -450,6 +482,18 @@ const runListener = async () => {
       },
     ],
   );
+
+  logger.info(`Listening for raydium changes (Subscription ID  ${raydiumSubscriptionId})`);
+}
+
+const runListener = async () => {
+  logger.info("Sniper bot")
+  logger.info("Init")
+  await init();
+  logger.info("Start Listeners")
+
+  const runTimestamp = Math.floor(new Date().getTime() / 1000);
+  listenPools(runTimestamp);
 
   const openBookSubscriptionId = solanaConnection.onProgramAccountChange(
     OPENBOOK_PROGRAM_ID,
@@ -499,13 +543,14 @@ const runListener = async () => {
       ],
     );
 
-    logger.info(`Listening for wallet changes: ${walletSubscriptionId}`);
+    logger.info(`Listening for wallet changes (Subscription ID ${walletSubscriptionId})`);
   }
 
-  logger.info(`Listening for raydium changes: ${raydiumSubscriptionId}`);
-  logger.info(`Listening for open book changes: ${openBookSubscriptionId}`);
+
+  logger.info(`Listening for open book changes (Subscription ID ${openBookSubscriptionId})`);
 
   if (USE_SNIPE_LIST) {
+    logger.info('Use snipe list');
     setInterval(loadSnipeList, SNIPE_LIST_REFRESH_INTERVAL);
   }
 };

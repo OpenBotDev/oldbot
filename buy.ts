@@ -48,7 +48,10 @@ import {
   SNIPE_LIST_REFRESH_INTERVAL,
   USE_SNIPE_LIST,
   MIN_POOL_SIZE,
+  PAPER_TRADE
 } from './constants';
+
+import { listenPools } from './raydium'
 
 const solanaConnection = new Connection(RPC_ENDPOINT, {
   wsEndpoint: RPC_WEBSOCKET_ENDPOINT,
@@ -61,19 +64,17 @@ export interface MinimalTokenAccountData {
   market?: MinimalMarketLayoutV3;
 }
 
-const existingLiquidityPools: Set<string> = new Set<string>();
 const existingOpenBookMarkets: Set<string> = new Set<string>();
 const existingTokenAccounts: Map<string, MinimalTokenAccountData> = new Map<string, MinimalTokenAccountData>();
 
 let wallet: Keypair;
-let quoteToken: Token;
+export let quoteToken: Token;
 let quoteTokenAssociatedAddress: PublicKey;
 let quoteAmount: TokenAmount;
 let quoteMinPoolSizeAmount: TokenAmount;
 
 let snipeList: string[] = [];
 
-let events = 0;
 
 async function init(): Promise<void> {
   logger.level = LOG_LEVEL;
@@ -115,6 +116,8 @@ async function init(): Promise<void> {
   logger.info(`Buy amount: ${quoteAmount.toFixed()} ${quoteToken.symbol}`);
   logger.info(`Auto sell: ${AUTO_SELL}`);
   logger.info(`Sell delay: ${AUTO_SELL_DELAY === 0 ? 'false' : AUTO_SELL_DELAY}`);
+
+  logger.info(`Paper trade: ${PAPER_TRADE}`);
 
   // check existing wallet for associated token account of quote mint
   const tokenAccounts = await getTokenAccounts(solanaConnection, wallet.publicKey, COMMITMENT_LEVEL);
@@ -158,6 +161,7 @@ function saveTokenAccount(mint: PublicKey, accountData: MinimalMarketLayoutV3) {
 }
 
 export async function processRaydiumPool(id: PublicKey, poolState: LiquidityStateV4) {
+
   if (!shouldBuy(poolState.baseMint.toString())) {
     return;
   }
@@ -188,7 +192,11 @@ export async function processRaydiumPool(id: PublicKey, poolState: LiquidityStat
     }
   }
 
-  await buy(id, poolState);
+  if (!PAPER_TRADE) {
+    await buy(id, poolState);
+  } else {
+    logger.info('PAPER BUY ' + id);
+  }
 }
 
 export async function checkMintable(vault: PublicKey): Promise<boolean | undefined> {
@@ -417,75 +425,6 @@ function shouldBuy(key: string): boolean {
   return USE_SNIPE_LIST ? snipeList.includes(key) : true;
 }
 
-function listenPools(runTimestamp: number) {
-
-  const reportTime = 10000;
-  const waitTime = 30000;
-
-  setInterval(() => {
-
-    const currentDate = new Date();
-    const t = currentDate.getTime() / 1000;
-    const delta = (t - runTimestamp);
-
-    logger.info('Seconds since start: ' + delta.toFixed(0));
-    logger.info('Total event count: ' + events);
-    logger.info('Events per sec: ' + (events / delta).toFixed(0));
-
-  }, reportTime); // seconds
-
-  setTimeout(() => {
-    if (events === 0) {
-      logger.warn('No events received from Node within the expected timeframe.');
-      process.exit()
-      return;
-    }
-  }, waitTime); // seconds
-
-
-  const raydiumSubscriptionId = solanaConnection.onProgramAccountChange(
-    RAYDIUM_LIQUIDITY_PROGRAM_ID_V4,
-    async (updatedAccountInfo) => {
-      events++;
-
-      const key = updatedAccountInfo.accountId.toString();
-      const poolState = LIQUIDITY_STATE_LAYOUT_V4.decode(updatedAccountInfo.accountInfo.data);
-      const poolOpenTime = parseInt(poolState.poolOpenTime.toString());
-      const existing = existingLiquidityPools.has(key);
-
-      if (poolOpenTime > runTimestamp && !existing) {
-        existingLiquidityPools.add(key);
-        const _ = processRaydiumPool(updatedAccountInfo.accountId, poolState);
-      }
-
-    },
-    COMMITMENT_LEVEL,
-    [
-      { dataSize: LIQUIDITY_STATE_LAYOUT_V4.span },
-      {
-        memcmp: {
-          offset: LIQUIDITY_STATE_LAYOUT_V4.offsetOf('quoteMint'),
-          bytes: quoteToken.mint.toBase58(),
-        },
-      },
-      {
-        memcmp: {
-          offset: LIQUIDITY_STATE_LAYOUT_V4.offsetOf('marketProgramId'),
-          bytes: OPENBOOK_PROGRAM_ID.toBase58(),
-        },
-      },
-      {
-        memcmp: {
-          offset: LIQUIDITY_STATE_LAYOUT_V4.offsetOf('status'),
-          bytes: bs58.encode([6, 0, 0, 0, 0, 0, 0, 0]),
-        },
-      },
-    ],
-  );
-
-  logger.info(`Listening for raydium changes (Subscription ID  ${raydiumSubscriptionId})`);
-}
-
 const runListener = async () => {
   logger.info("Sniper bot")
   logger.info("Init")
@@ -493,7 +432,7 @@ const runListener = async () => {
   logger.info("Start Listeners")
 
   const runTimestamp = Math.floor(new Date().getTime() / 1000);
-  listenPools(runTimestamp);
+  listenPools(runTimestamp, solanaConnection, processRaydiumPool);
 
   const openBookSubscriptionId = solanaConnection.onProgramAccountChange(
     OPENBOOK_PROGRAM_ID,
@@ -556,3 +495,4 @@ const runListener = async () => {
 };
 
 runListener();
+

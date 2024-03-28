@@ -51,7 +51,7 @@ import {
   PAPER_TRADE
 } from './constants';
 
-import { listenPools } from './raydium'
+import { listenPools, listenOpenbook } from './raydium'
 
 const solanaConnection = new Connection(RPC_ENDPOINT, {
   wsEndpoint: RPC_WEBSOCKET_ENDPOINT,
@@ -64,7 +64,6 @@ export interface MinimalTokenAccountData {
   market?: MinimalMarketLayoutV3;
 }
 
-const existingOpenBookMarkets: Set<string> = new Set<string>();
 const existingTokenAccounts: Map<string, MinimalTokenAccountData> = new Map<string, MinimalTokenAccountData>();
 
 let wallet: Keypair;
@@ -432,29 +431,11 @@ const runListener = async () => {
   logger.info("Start Listeners")
 
   const runTimestamp = Math.floor(new Date().getTime() / 1000);
+
   listenPools(runTimestamp, solanaConnection, processRaydiumPool);
 
-  const openBookSubscriptionId = solanaConnection.onProgramAccountChange(
-    OPENBOOK_PROGRAM_ID,
-    async (updatedAccountInfo) => {
-      const key = updatedAccountInfo.accountId.toString();
-      const existing = existingOpenBookMarkets.has(key);
-      if (!existing) {
-        existingOpenBookMarkets.add(key);
-        const _ = processOpenBookMarket(updatedAccountInfo);
-      }
-    },
-    COMMITMENT_LEVEL,
-    [
-      { dataSize: MARKET_STATE_LAYOUT_V3.span },
-      {
-        memcmp: {
-          offset: MARKET_STATE_LAYOUT_V3.offsetOf('quoteMint'),
-          bytes: quoteToken.mint.toBase58(),
-        },
-      },
-    ],
-  );
+  listenOpenbook(solanaConnection, processOpenBookMarket);
+
 
   if (AUTO_SELL) {
     const walletSubscriptionId = solanaConnection.onProgramAccountChange(
@@ -484,9 +465,6 @@ const runListener = async () => {
 
     logger.info(`Listening for wallet changes (Subscription ID ${walletSubscriptionId})`);
   }
-
-
-  logger.info(`Listening for open book changes (Subscription ID ${openBookSubscriptionId})`);
 
   if (USE_SNIPE_LIST) {
     logger.info('Use snipe list');

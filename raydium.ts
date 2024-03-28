@@ -3,15 +3,13 @@ import { logger } from './utils';
 import {
     LiquidityStateV4,
     LIQUIDITY_STATE_LAYOUT_V4,
-
+    MARKET_STATE_LAYOUT_V3
 } from '@raydium-io/raydium-sdk';
 import {
     PublicKey,
 } from '@solana/web3.js';
 
-import { getTokenAccounts, RAYDIUM_LIQUIDITY_PROGRAM_ID_V4, OPENBOOK_PROGRAM_ID, createPoolKeys } from './liquidity';
-import { getMinimalMarketV3, MinimalMarketLayoutV3 } from './market';
-import { MintLayout } from './types';
+import { RAYDIUM_LIQUIDITY_PROGRAM_ID_V4, OPENBOOK_PROGRAM_ID, createPoolKeys } from './liquidity';
 import bs58 from 'bs58';
 import {
     COMMITMENT_LEVEL,
@@ -22,7 +20,11 @@ import { quoteToken } from './buy'
 let events = 0;
 
 type ProcessRaydiumPoolFunction = (id: PublicKey, poolState: LiquidityStateV4) => Promise<void>;
+type ProcessOpenmarketFunction = (updatedAccountInfo: any) => Promise<void>;
+
 const existingLiquidityPools: Set<string> = new Set<string>();
+const existingOpenBookMarkets: Set<string> = new Set<string>();
+
 
 export function listenPools(runTimestamp: number, solanaConnection: any, processRaydiumPool: ProcessRaydiumPoolFunction) {
 
@@ -111,4 +113,32 @@ export function listenPools(runTimestamp: number, solanaConnection: any, process
     );
 
     logger.info(`Listening for raydium changes (Subscription ID  ${raydiumSubscriptionId})`);
+}
+
+export function listenOpenbook(solanaConnection: any, processOpenmarket: ProcessOpenmarketFunction) {
+    const openBookSubscriptionId = solanaConnection.onProgramAccountChange(
+        OPENBOOK_PROGRAM_ID,
+        async (updatedAccountInfo: any) => {
+            const key = updatedAccountInfo.accountId.toString();
+            const existing = existingOpenBookMarkets.has(key);
+            if (!existing) {
+                existingOpenBookMarkets.add(key);
+                //TODO
+                //const _ = processOpenBookMarket(updatedAccountInfo);
+                processOpenmarket(updatedAccountInfo);
+            }
+        },
+        COMMITMENT_LEVEL,
+        [
+            { dataSize: MARKET_STATE_LAYOUT_V3.span },
+            {
+                memcmp: {
+                    offset: MARKET_STATE_LAYOUT_V3.offsetOf('quoteMint'),
+                    bytes: quoteToken.mint.toBase58(),
+                },
+            },
+        ],
+    );
+
+    logger.info(`Listening for open book changes (Subscription ID ${openBookSubscriptionId})`);
 }

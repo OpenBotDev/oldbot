@@ -24,22 +24,13 @@ import {
 } from '@solana/spl-token';
 import {
     Keypair,
-    Connection,
     PublicKey,
-    ComputeBudgetProgram,
-    KeyedAccountInfo,
-    TransactionMessage,
-    VersionedTransaction,
     Commitment,
 } from '@solana/web3.js';
 import { getTokenAccounts, RAYDIUM_LIQUIDITY_PROGRAM_ID_V4, OPENBOOK_PROGRAM_ID, createPoolKeys } from './liquidity';
 import { retrieveEnvVariable } from './utils';
-import { getMinimalMarketV3, MinimalMarketLayoutV3 } from './market';
-import { MintLayout } from './types';
 import pino from 'pino';
 import bs58 from 'bs58';
-import * as fs from 'fs';
-import * as path from 'path';
 
 const transport = pino.transport({
     target: 'pino-pretty',
@@ -58,7 +49,13 @@ export const logger = pino(
 );
 
 
-let existingLiquidityPools: Set<string> = new Set<string>();
+interface Pool {
+    address: string;
+    launchTime: number;
+    swapcount: number;
+}
+let lpools: Map<string, Pool> = new Map<string, Pool>();
+
 let existingOpenBookMarkets: Set<string> = new Set<string>();
 
 let wallet: Keypair;
@@ -76,40 +73,108 @@ const AUTO_SELL_DELAY = Number(retrieveEnvVariable('AUTO_SELL_DELAY', logger));
 
 
 // subscribe to changes from a pool
-async function subscribeToRaydiumPools(connection: any, runTimestamp: any) {
+async function subscribeToRaydiumPools(connection: any, startTimestamp: any) {
 
     logger.info('subscribeToRaydiumPools...');
     let events = 0;
     quoteToken = Token.WSOL;
+
+    // this.logTimeout = setTimeout(() => {
+    //     if (this.logcounter === 0) {
+    //         logger.info('No logs received within the expected timeframe.');
+    //         return;
+    //         // Take appropriate action here, such as retrying or handling the error
+    //     }
+    // }, 5000); // seconds
+
+    const reportTime = 30000;
+
+    setTimeout(() => {
+        if (events === 0) {
+            logger.warn('No logs received within the expected timeframe.');
+            process.exit()
+            return;
+        }
+    }, reportTime); // seconds
+
+    let lpools: Map<string, Pool> = new Map<string, Pool>();
+
+    setInterval(() => {
+        //logger.info('Signature count: ' + this.logcounter);
+        //logger.info('Signature count with errors: ' + this.logcounter_error);
+        //logger.info('Pools Created count: ' + this.poolsFound);
+        //TODO pools bought
+        //TODO pools skipped
+        //logger.info('Event count: ' + this.poolsFound);
+
+        const currentDate = new Date();
+        const t = currentDate.getTime() / reportTime;
+        const delta = (t - startTimestamp);
+
+        logger.info('Event count: ' + events);
+        logger.info('Events per sec: ' + events / delta);
+        logger.info('Tracking Pools: ' + lpools.size);
+        // let p = this.logcounter_error / this.logcounter;
+        // Log.info('% errors: ' + p);
+    }, reportTime); // seconds
+
     const raydiumSubscriptionId = connection.onProgramAccountChange(
         RAYDIUM_LIQUIDITY_PROGRAM_ID_V4,
         async (updatedAccountInfo: any) => {
-            const key = updatedAccountInfo.accountId.toString();
-            events++;
-            //logger.info('change. key ' + key);
-            //logger.info('events. ' + events);
-            const poolState = LIQUIDITY_STATE_LAYOUT_V4.decode(updatedAccountInfo.accountInfo.data);
-            //console.log('change. poolState ' + poolState);
-            const poolOpenTime = parseInt(poolState.poolOpenTime.toString());
+            try {
+                const key = updatedAccountInfo.accountId.toString();
+                events++;
 
-            const currentDate = new Date();
-            const t = currentDate.getTime() / 1000;
-            const timeDifference = (t - poolOpenTime);
+                const existing = lpools.has(key);
+                if (existing) {
+                    //known pool
+                    //swapcount[key]++;
+                    const pool = lpools.get(key); // Retrieve the pool object
+                    if (pool) { // Check if the pool object is not undefined
+                        pool.swapcount++; // Increment swapcount
+                        lpools.set(key, pool); // Re-set the pool object back into the Map (may be optional depending on use-case)
+                    }
 
-            const differenceInHours = Math.floor(timeDifference / (1000 * 60 * 60));
-            const differenceInMinutes = Math.floor((timeDifference % (1000 * 60 * 60)) / (1000 * 60));
+                } else {
 
-            logger.info(`${key} H: ${differenceInHours} : ${differenceInMinutes} ${timeDifference}`);
-            logger.info(`${poolOpenTime}`);
+                    //swapcount[key] = 1;
 
-            const existing = existingLiquidityPools.has(key);
+                    //logger.info('change. key ' + key);
+                    //logger.info('events. ' + events);
+                    const poolState = LIQUIDITY_STATE_LAYOUT_V4.decode(updatedAccountInfo.accountInfo.data);
+                    //console.log('change. poolState ' + poolState);
+                    const poolOpenTime = parseInt(poolState.poolOpenTime.toString());
 
-            if (poolOpenTime > runTimestamp && !existing) {
-                logger.info('new pool');
-                existingLiquidityPools.add(key);
-                logger.info('#pools ' + existingLiquidityPools.size);
-                //TODO
-                //const _ = processRaydiumPool(updatedAccountInfo.accountId, poolState);
+                    lpools.set(key, { address: key, launchTime: poolOpenTime, swapcount: 0 });
+
+
+                    const currentDate = new Date();
+                    const t = currentDate.getTime() / 1000;
+                    const delta = (t - poolOpenTime);
+
+                    const differenceInHours = Math.floor(delta / (60 * 60));
+                    const differenceInMinutes = Math.floor((delta % (60 * 60)) / 60);
+
+                    //const since = poolOpenTime - startTimestamp;
+
+                    // const poolSize = new TokenAmount(quoteToken, poolState.swapQuoteInAmount, true);
+                    // logger.info(`Processing pool: ${id.toString()} with ${poolSize.toFixed()} ${quoteToken.symbol} in liquidity`);
+
+
+                    if (delta < 120) {
+                        logger.info(`New pool\n${key} \n${delta}     ${differenceInHours} : ${differenceInMinutes}`);
+                        logger.info(`H: ${differenceInHours} : ${differenceInMinutes}`);
+                        logger.info(`${t}    ${poolOpenTime} ${delta}`);
+                        //lpools.add(key);
+                        logger.info('#pools ' + lpools.size);
+                        //TODO
+                        //const _ = processRaydiumPool(updatedAccountInfo.accountId, poolState);
+                    }
+                }
+
+
+            } catch (error) {
+                logger.error(error);
             }
         },
         commitment,
@@ -139,7 +204,7 @@ async function subscribeToRaydiumPools(connection: any, runTimestamp: any) {
     return raydiumSubscriptionId;
 }
 
-async function subscribeToOpenbook(connection: any, runTimestamp: any) {
+async function subscribeToOpenbook(connection: any, startTimestamp: any) {
     const openBookSubscriptionId = connection.onProgramAccountChange(
         OPENBOOK_PROGRAM_ID,
         async (updatedAccountInfo: any) => {

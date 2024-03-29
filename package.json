@@ -1,8 +1,8 @@
 {
   "name": "solana-sniper-bot",
-  "author": "Filip Dundjer",
+  "author": "Openbot dev",
   "scripts": {
-    "buy": "ts-node buy.ts",
+    "buy": "ts-node bot.ts",
     "tsc": "tsc --noEmit"
   },
   "dependencies": {

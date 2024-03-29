@@ -15,6 +15,7 @@ import {
   createCloseAccountInstruction,
   getAssociatedTokenAddressSync,
   TOKEN_PROGRAM_ID,
+  getAssociatedTokenAddress
 } from '@solana/spl-token';
 import {
   Keypair,
@@ -24,6 +25,7 @@ import {
   KeyedAccountInfo,
   TransactionMessage,
   VersionedTransaction,
+  LAMPORTS_PER_SOL
 } from '@solana/web3.js';
 import { getTokenAccounts, RAYDIUM_LIQUIDITY_PROGRAM_ID_V4, OPENBOOK_PROGRAM_ID, createPoolKeys } from './liquidity';
 import { logger } from './utils';
@@ -74,6 +76,49 @@ let quoteMinPoolSizeAmount: TokenAmount;
 
 let snipeList: string[] = [];
 
+const WSOL_ADDRESS = 'So11111111111111111111111111111111111111112';
+const USDC_ADDRESS = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
+
+async function getTokenBalance(walletPublicKey: PublicKey, mintAddress: string): Promise<number | null> {
+  const walletPubKey = new PublicKey(walletPublicKey);
+  const tokenMintPubKey = new PublicKey(mintAddress);
+
+  const associatedTokenAddress = await getAssociatedTokenAddress(tokenMintPubKey, walletPubKey);
+
+  try {
+    // Query the balance
+    const balanceResult = await solanaConnection.getTokenAccountBalance(associatedTokenAddress);
+    return balanceResult.value.uiAmount;
+  } catch (error) {
+    console.error(`Could not fetch balance for account ${associatedTokenAddress.toString()}: ${error}`);
+    return null;
+  }
+}
+
+async function getTokenBalanceQuote(walletPublicKey: PublicKey, QUOTE_MINT: string): Promise<number | null> {
+  let mintAddress = undefined;
+  if (QUOTE_MINT === 'WSOL') {
+    mintAddress = WSOL_ADDRESS;
+  }
+  if (QUOTE_MINT === 'USDC') {
+    mintAddress = USDC_ADDRESS;
+  }
+  if (!mintAddress) return null;
+
+  return getTokenBalance(walletPublicKey, mintAddress);
+
+}
+
+async function getWalletSOLBalance(connection: any) {
+  try {
+    const balance = await connection.getBalance(wallet.publicKey) / LAMPORTS_PER_SOL;
+    return balance;
+
+  } catch (error) {
+    logger.error('Error getting wallet balance: ' + error);
+  }
+};
+
 
 async function init(): Promise<void> {
   logger.level = LOG_LEVEL;
@@ -81,6 +126,13 @@ async function init(): Promise<void> {
   // get wallet
   wallet = Keypair.fromSecretKey(bs58.decode(PRIVATE_KEY));
   logger.info(`Wallet Address: ${wallet.publicKey}`);
+
+  // get wallet balance for QUOTE_MINT token
+  const wsol_balance = await getTokenBalanceQuote(wallet.publicKey, 'WSOL');
+  logger.info(`Wallet WSOL Balance: ${wsol_balance}`);
+
+  const sol_balance = await getWalletSOLBalance(solanaConnection);
+  logger.info(`Wallet balance: ${sol_balance}`);
 
   // get quote mint and amount
   switch (QUOTE_MINT) {

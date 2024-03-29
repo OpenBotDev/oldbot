@@ -15,7 +15,7 @@ import {
     COMMITMENT_LEVEL,
 } from './constants';
 
-import { quoteToken } from './buy'
+import { quoteToken } from './bot'
 
 let events = 0;
 

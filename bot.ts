@@ -15,7 +15,7 @@ import {
   createCloseAccountInstruction,
   getAssociatedTokenAddressSync,
   TOKEN_PROGRAM_ID,
-  getAssociatedTokenAddress
+  getAssociatedTokenAddress,
 } from '@solana/spl-token';
 import {
   Keypair,
@@ -25,10 +25,10 @@ import {
   KeyedAccountInfo,
   TransactionMessage,
   VersionedTransaction,
-  LAMPORTS_PER_SOL
+  LAMPORTS_PER_SOL,
 } from '@solana/web3.js';
 import { getTokenAccounts, RAYDIUM_LIQUIDITY_PROGRAM_ID_V4, OPENBOOK_PROGRAM_ID, createPoolKeys } from './liquidity';
-import { logger } from './utils';
+import { logger, sendTelegramMessage } from './utils';
 import { getMinimalMarketV3, MinimalMarketLayoutV3 } from './market';
 import { MintLayout } from './types';
 import bs58 from 'bs58';
@@ -50,10 +50,11 @@ import {
   SNIPE_LIST_REFRESH_INTERVAL,
   USE_SNIPE_LIST,
   MIN_POOL_SIZE,
-  PAPER_TRADE
+  PAPER_TRADE,
+  TELEGRAM_ENABLED,
 } from './constants';
 
-import { listenPools, listenOpenbook } from './raydium'
+import { listenPools, listenOpenbook } from './raydium';
 
 const solanaConnection = new Connection(RPC_ENDPOINT, {
   wsEndpoint: RPC_WEBSOCKET_ENDPOINT,
@@ -106,19 +107,16 @@ async function getTokenBalanceQuote(walletPublicKey: PublicKey, QUOTE_MINT: stri
   if (!mintAddress) return null;
 
   return getTokenBalance(walletPublicKey, mintAddress);
-
 }
 
 async function getWalletSOLBalance(connection: any) {
   try {
-    const balance = await connection.getBalance(wallet.publicKey) / LAMPORTS_PER_SOL;
+    const balance = (await connection.getBalance(wallet.publicKey)) / LAMPORTS_PER_SOL;
     return balance;
-
   } catch (error) {
     logger.error('Error getting wallet balance: ' + error);
   }
-};
-
+}
 
 async function init(): Promise<void> {
   logger.level = LOG_LEVEL;
@@ -169,6 +167,7 @@ async function init(): Promise<void> {
   logger.info(`Sell delay: ${AUTO_SELL_DELAY === 0 ? 'false' : AUTO_SELL_DELAY}`);
 
   logger.info(`Paper trade: ${PAPER_TRADE}`);
+  logger.info(`Telegram Notifier: ${TELEGRAM_ENABLED}`);
 
   // check existing wallet for associated token account of quote mint
   const tokenAccounts = await getTokenAccounts(solanaConnection, wallet.publicKey, COMMITMENT_LEVEL);
@@ -194,6 +193,21 @@ async function init(): Promise<void> {
 
   // load tokens to snipe
   loadSnipeList();
+
+  // Prepare the Telegram message
+  const message =
+    `<b>🚀 Sniper Started</b>\n` +
+    `<b>Wallet Address:</b> ${wallet.publicKey}\n` +
+    `<b>Wallet WSOL Balance:</b> ${wsol_balance}\n` +
+    `<b>Wallet balance:</b> ${sol_balance}\n` +
+    `<b>Snipe list:</b> ${USE_SNIPE_LIST}\n` +
+    `<b>Check mint renounced:</b> ${CHECK_IF_MINT_IS_RENOUNCED}\n` +
+    `<b>Min pool size:</b> ${quoteMinPoolSizeAmount.isZero() ? 'false' : quoteMinPoolSizeAmount.toFixed()} ${quoteToken.symbol}\n` +
+    `<b>Buy amount:</b> ${quoteAmount.toFixed()} ${quoteToken.symbol}\n` +
+    `<b>Auto sell:</b> ${AUTO_SELL}\n` +
+    `<b>Sell delay:</b> ${AUTO_SELL_DELAY}\n` +
+    `<b>Paper trade:</b> ${PAPER_TRADE}`;
+  await sendTelegramMessage(message);
 }
 
 function saveTokenAccount(mint: PublicKey, accountData: MinimalMarketLayoutV3) {
@@ -212,7 +226,6 @@ function saveTokenAccount(mint: PublicKey, accountData: MinimalMarketLayoutV3) {
 }
 
 export async function processRaydiumPool(id: PublicKey, poolState: LiquidityStateV4) {
-
   if (!shouldBuy(poolState.baseMint.toString())) {
     return;
   }
@@ -347,13 +360,27 @@ async function buy(accountId: PublicKey, accountData: LiquidityStateV4): Promise
         },
         `Confirmed buy tx`,
       );
+      //telegram notification
+      const message =
+        `<b>🛒 Token Purchased</b>\n` +
+        `<b>Mint:</b> ${accountData.baseMint}\n` +
+        `<b>Amount:</b> ${quoteAmount.toFixed()} ${quoteToken.symbol}\n` +
+        `<b>Transaction:</b> <a href="https://solscan.io/tx/${signature}?cluster=${NETWORK}">View on SolScan</a>`;
+      await sendTelegramMessage(message);
     } else {
       logger.debug(confirmation.value.err);
       logger.info({ mint: accountData.baseMint, signature }, `Error confirming buy tx`);
     }
-  } catch (e) {
+  } catch (e: any) {
     logger.debug(e);
     logger.error({ mint: accountData.baseMint }, `Failed to buy token`);
+
+    // Send Telegram notification about the buy failure
+    const errorMessage =
+      `<b>❌ Failed to Buy Token</b>\n` +
+      `<b>Mint:</b> ${accountData.baseMint}\n` +
+      `<b>Error:</b> ${e.message || e.toString()}`;
+    await sendTelegramMessage(errorMessage);
   }
 }
 
@@ -445,12 +472,29 @@ async function sell(accountId: PublicKey, mint: PublicKey, amount: BigNumberish)
         `Confirmed sell tx`,
       );
       sold = true;
+      //telegram notification
+      const message =
+        `<b>💰 Token Sold</b>\n` +
+        `<b>Mint:</b> ${mint}\n` +
+        `<b>Amount:</b> ${amount.toString()}\n` +
+        `<b>Transaction:</b> <a href="https://solscan.io/tx/${signature}?cluster=${NETWORK}">View on SolScan</a>`;
+      await sendTelegramMessage(message);
     } catch (e: any) {
       // wait for a bit before retrying
       await new Promise((resolve) => setTimeout(resolve, 100));
       retries++;
       logger.debug(e);
       logger.error({ mint }, `Failed to sell token, retry: ${retries}/${MAX_SELL_RETRIES}`);
+
+      // when retries have been exhausted, send a Telegram notification
+      if (retries >= MAX_SELL_RETRIES) {
+        const errorMessage =
+          `<b>❌ Failed to Sell Token</b>\n` +
+          `<b>Mint:</b> ${mint}\n` +
+          `<b>Retries:</b> ${retries}\n` +
+          `<b>Error:</b> ${e.message || e.toString()}`;
+        await sendTelegramMessage(errorMessage);
+      }
     }
   } while (!sold && retries < MAX_SELL_RETRIES);
 }
@@ -477,17 +521,16 @@ function shouldBuy(key: string): boolean {
 }
 
 const runListener = async () => {
-  logger.info("Sniper bot")
-  logger.info("Init")
+  logger.info('Sniper bot');
+  logger.info('Init');
   await init();
-  logger.info("Start Listeners")
+  logger.info('Start Listeners');
 
   const runTimestamp = Math.floor(new Date().getTime() / 1000);
 
   listenPools(runTimestamp, solanaConnection, processRaydiumPool);
 
   listenOpenbook(solanaConnection, processOpenBookMarket);
-
 
   if (AUTO_SELL) {
     const walletSubscriptionId = solanaConnection.onProgramAccountChange(
@@ -525,4 +568,3 @@ const runListener = async () => {
 };
 
 runListener();
-

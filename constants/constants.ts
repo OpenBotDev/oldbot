@@ -1,5 +1,5 @@
-import { Commitment } from "@solana/web3.js";
-import { logger, retrieveEnvVariable } from "../utils";
+import { Commitment } from '@solana/web3.js';
+import { logger, retrieveEnvVariable } from '../utils';
 
 export const NETWORK = 'mainnet-beta';
 export const COMMITMENT_LEVEL: Commitment = retrieveEnvVariable('COMMITMENT_LEVEL', logger) as Commitment;
@@ -18,3 +18,6 @@ export const QUOTE_AMOUNT = retrieveEnvVariable('QUOTE_AMOUNT', logger);
 export const MIN_POOL_SIZE = retrieveEnvVariable('MIN_POOL_SIZE', logger);
 export const PAPER_TRADE = retrieveEnvVariable('PAPER_TRADE', logger);
 
+export const TELEGRAM_BOT_TOKEN = retrieveEnvVariable('TELEGRAM_BOT_TOKEN', logger);
+export const TELEGRAM_CHAT_ID = retrieveEnvVariable('TELEGRAM_CHAT_ID', logger);
+export const TELEGRAM_ENABLED = retrieveEnvVariable('TELEGRAM', logger) === 'true';

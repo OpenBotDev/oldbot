@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Openbot</title>
+    <style>
+        /* Style for the message box */
+        #messageBox {
+            border: 1px solid #ddd;
+            /* Light gray border */
+            background-color: #f4f4f4;
+            /* Light gray background */
+            padding: 10px;
+            /* Some padding inside the box */
+            margin: 20px 0;
+            /* Margin above and below the box */
+            height: 150px;
+            /* Fixed height */
+            overflow-y: auto;
+            /* Enable vertical scrolling if content overflows */
+        }
+    </style>
+</head>
+
+<body>
+    <h2>Openbot Beta</h2>
+    <div id="messageBox">
+        <!-- Messages will be added here -->
+    </div>
+
+    <script>
+        const ws = new WebSocket('ws://' + window.location.host);
+
+        ws.onopen = function () {
+            console.log('Connected to the server');
+            //ws.send('Hello, server!');
+        };
+
+        ws.onmessage = function (event) {
+            console.log('Message from server: ', event.data);
+            // Create a new div element for each message and append it to the message box
+            const messageElement = document.createElement('div');
+            messageElement.textContent = event.data;
+            messageBox.appendChild(messageElement);
+        };
+
+        ws.onclose = function () {
+            console.log('Disconnected from the server');
+        };
+    </script>
+</body>
+
+</html>

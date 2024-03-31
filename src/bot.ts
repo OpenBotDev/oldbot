@@ -221,8 +221,8 @@ export async function processRaydiumPool(id: PublicKey, poolState: LiquidityStat
   if (!quoteMinPoolSizeAmount.isZero()) {
     const poolSize = new TokenAmount(quoteToken, poolState.swapQuoteInAmount, true);
     logger.info(`Processing pool: ${id.toString()} with ${poolSize.toFixed(2)} ${quoteToken.symbol} in liquidity`);
-    logger.info(`state ${poolState.state}`);
-    logger.info(`status ${poolState.status}`);
+    // logger.info(`state ${poolState.state}`);
+    // logger.info(`status ${poolState.status}`);
 
     if (poolSize.lt(quoteMinPoolSizeAmount)) {
       logger.warn(`Skipping pool, smaller than ${quoteMinPoolSizeAmount.toFixed()} ${quoteToken.symbol}`, {
@@ -475,7 +475,8 @@ function shouldBuy(key: string): boolean {
   return USE_SNIPE_LIST ? snipeList.includes(key) : true;
 }
 
-const runListener = async () => {
+export const runListener = async (logger: any) => {
+
   logger.info('------------------- 🤖 ---------------------');
   logger.info("Openbot Solana")
   logger.info('------------------- 🤖 ---------------------');
@@ -525,6 +526,4 @@ const runListener = async () => {
     setInterval(loadSnipeList, SNIPE_LIST_REFRESH_INTERVAL);
   }
 };
-
-runListener();
 

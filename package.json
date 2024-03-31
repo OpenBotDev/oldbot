@@ -3,6 +3,7 @@
   "author": "Openbot dev",
   "scripts": {
     "bot": "ts-node src/bot.ts",
+    "server": "ts-node src/server.ts",
     "tsc": "tsc --noEmit"
   },
   "dependencies": {

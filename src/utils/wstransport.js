@@ -1,70 +1,32 @@
-var winston = require("winston");
-var ws = require("ws");
-var util = require("util");
+// File: WSTransport.js
+const Transport = require('winston-transport');
+const util = require('util');
+const WebSocket = require('ws');
 
-var WSTransport = function (options) {
-    this.name = options.name || "wstransport";
-    this.level = options.level || "debug";
-    this.archive = [];
-    startWSServer(options.wsoptions, options.authCallback, options.app, this.name);
-};
 
-util.inherits(WSTransport, winston.Transport);
+function WSTransport(opts) {
+    Transport.call(this, opts);
+    // Save the WebSocket server reference
+    this.wss = opts.wss;
+}
 
-WSTransport.prototype.log = function (level, msg, meta, callback) {
-    var curlog = {
-        level: level,
-        message: msg,
-        createdAt: new Date().toISOString()
-    };
-    this.archive.push(curlog);
-    if (this.archive.length > 500) this.archive.splice(0, this.archive.length - 500);
-    this.emit('logtransmit', curlog);
-    callback(null, true);
-};
+util.inherits(WSTransport, Transport);
 
-var startWSServer = function (options, authCallback, app, loggerName) {
-    if (authCallback) options.verifyClient = getVerifyFunc(authCallback, app);
-    var wss = new ws.Server(options);
-    wss.on('connection', function (ws) {
-        var memLogger = winston["default"].transports[loggerName];
-        attachWSToLogger(ws, memLogger);
+WSTransport.prototype.log = function (info, callback) {
+    setImmediate(() => {
+        this.emit('logged', info);
     });
+
+    // Broadcast message to all connected clients
+    if (this.wss) {
+        this.wss.clients.forEach(client => {
+            if (client.readyState === WebSocket.OPEN) {
+                client.send(JSON.stringify(info));
+            }
+        });
+    }
+
+    callback();
 };
 
-var dummyFunc = function () { };
-
-var getVerifyFunc = function (authCallback, app) {
-    return function (info, verifyCallback) {
-        var req = info.req;
-        req.url = "/__websocketproxy__" + req.url;
-        req.isWebSocketProxy = true;
-        var res = {
-            setHeader: dummyFunc,
-            output: { push: dummyFunc },
-            outputEncodings: { push: dummyFunc }
-        };
-        req.websocketProxyEnd = function () { authCallback(req, verifyCallback); };
-        app(info.req, res);
-    };
-};
-
-var attachWSToLogger = function (ws, memLogger) {
-    ws.send(JSON.stringify(memLogger.archive));
-    var transmitListener = function (log) {
-        if (ws.readyState === 1)
-            ws.send(JSON.stringify([log]));
-    };
-    memLogger.on('logtransmit', transmitListener);
-    return ws.on('close', function () {
-        memLogger.removeListener('logtransmit', transmitListener);
-    });
-};
-
-exports.authorizeWebSocket = function () {
-    return function (req, res, next) {
-        if (req.isWebSocketProxy) req.websocketProxyEnd(); else next();
-    };
-};
-
-exports.WSTransport = WSTransport;
+module.exports = WSTransport;

@@ -4,20 +4,12 @@ import * as path from 'path';
 var express = require("express");
 var app = express();
 var http = require("http");
-var server = http.createServer(app);
+import { server } from '../server';
 
 // Define custom TypeScript types for log metadata
 interface LogMetadata {
   [key: string]: any;
 }
-
-import WebSocket from 'ws';
-var { WSTransport } = require("./WSTransport");
-
-var wsoptions = {
-  server: server,
-  path: "/logs"
-};
 
 // Authorization callback for WebSocket connections
 var authCallback = function (req: any, callback: any) {
@@ -83,12 +75,7 @@ export const logger: winston.Logger = winston.createLogger({
       ),
     }),
     new winston.transports.File({ filename: path.join(logsDir, 'bot.log') }),
-    new WSTransport({
-      wsoptions: wsoptions,
-      authCallback: authCallback,
-      app: app,
-      name: "websocketLog"
-    })
+
   ],
 });
 
@@ -96,8 +83,3 @@ export const logger: winston.Logger = winston.createLogger({
 logger.info('This is an info level message', { additional: 'data' });
 
 logger.info("Hello world!");
-
-// Start the HTTP server
-server.listen(3000, function () {
-  console.log("Server listening on port 3000");
-});

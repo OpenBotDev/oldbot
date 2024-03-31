@@ -82,8 +82,6 @@ let quoteMinPoolSizeAmount: TokenAmount;
 let snipeList: string[] = [];
 
 
-
-
 async function init(): Promise<void> {
   logger.level = LOG_LEVEL;
 
@@ -96,7 +94,7 @@ async function init(): Promise<void> {
   logger.info(`Wallet WSOL Balance: ${wsol_balance}`);
 
   const sol_balance = await getWalletSOLBalance(connection, wallet);
-  logger.info(`Wallet balance: ${sol_balance}`);
+  logger.info(`Wallet SOL balance: ${sol_balance}`);
 
   // get quote mint and amount
   switch (QUOTE_MINT) {
@@ -177,6 +175,16 @@ export function saveTokenAccount(mint: PublicKey, accountData: MinimalMarketLayo
 
 export async function processRaydiumPool(id: PublicKey, poolState: LiquidityStateV4) {
 
+  const poolOpenTime = parseInt(poolState.poolOpenTime.toString());
+  const currentDate = new Date();
+  const t = currentDate.getTime() / 1000;
+  const delta_seconds = (t - poolOpenTime);
+
+  const MAX_AGE = 120;
+  if (delta_seconds > MAX_AGE) {
+    logger.warn(`pool already launched ${MAX_AGE} ago`)
+  }
+
   if (!shouldBuy(poolState.baseMint.toString())) {
     return;
   }
@@ -184,8 +192,8 @@ export async function processRaydiumPool(id: PublicKey, poolState: LiquidityStat
   if (!quoteMinPoolSizeAmount.isZero()) {
     const poolSize = new TokenAmount(quoteToken, poolState.swapQuoteInAmount, true);
     logger.info(`Processing pool: ${id.toString()} with ${poolSize.toFixed(2)} ${quoteToken.symbol} in liquidity`);
-    logger.info(`state ${poolState.state}`);
-    logger.info(`status ${poolState.status}`);
+    // logger.info(`state ${poolState.state}`);
+    // logger.info(`status ${poolState.status}`);
 
     if (poolSize.lt(quoteMinPoolSizeAmount)) {
       logger.warn(`Skipping pool, smaller than ${quoteMinPoolSizeAmount.toFixed()} ${quoteToken.symbol}`, {
@@ -207,12 +215,15 @@ export async function processRaydiumPool(id: PublicKey, poolState: LiquidityStat
       return;
     }
   }
-
-  if (!PAPER_TRADE) {
-    await buy(id, poolState, connection, wallet, quoteTokenAssociatedAddress, quoteAmount);
+  logger.info(PAPER_TRADE);
+  logger.info(typeof (PAPER_TRADE));
+  if (PAPER_TRADE == 'true') {
+    logger.info("PAPER_TRADE");
   } else {
-    logger.info('PAPER BUY ' + id);
+    logger.info("TRADE");
+    await buy(id, poolState, connection, wallet, quoteTokenAssociatedAddress, quoteAmount);
   }
+
 }
 
 

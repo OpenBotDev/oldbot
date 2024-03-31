@@ -28,7 +28,7 @@ import {
   LAMPORTS_PER_SOL
 } from '@solana/web3.js';
 import { getTokenAccounts, RAYDIUM_LIQUIDITY_PROGRAM_ID_V4, OPENBOOK_PROGRAM_ID, createPoolKeys } from './liquidity';
-import { logger } from './utils';
+import { logger } from './utils/logger';
 import { getMinimalMarketV3, MinimalMarketLayoutV3 } from './market';
 import { MintLayout } from './types';
 import bs58 from 'bs58';
@@ -50,7 +50,9 @@ import {
   SNIPE_LIST_REFRESH_INTERVAL,
   USE_SNIPE_LIST,
   MIN_POOL_SIZE,
-  PAPER_TRADE
+  PAPER_TRADE,
+  USDC_ADDRESS,
+  WSOL_ADDRESS
 } from './constants';
 
 import { listenPools, listenOpenbook } from './raydium'
@@ -68,6 +70,7 @@ export interface MinimalTokenAccountData {
 
 const existingTokenAccounts: Map<string, MinimalTokenAccountData> = new Map<string, MinimalTokenAccountData>();
 
+// variables
 let wallet: Keypair;
 export let quoteToken: Token;
 let quoteTokenAssociatedAddress: PublicKey;
@@ -76,8 +79,6 @@ let quoteMinPoolSizeAmount: TokenAmount;
 
 let snipeList: string[] = [];
 
-const WSOL_ADDRESS = 'So11111111111111111111111111111111111111112';
-const USDC_ADDRESS = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 
 async function getTokenBalance(walletPublicKey: PublicKey, mintAddress: string): Promise<number | null> {
   const walletPubKey = new PublicKey(walletPublicKey);
@@ -160,6 +161,7 @@ async function init(): Promise<void> {
   }
 
   logger.info(`Snipe list: ${USE_SNIPE_LIST}`);
+  logger.info(`Paper trade: ${PAPER_TRADE}`);
   logger.info(`Check mint renounced: ${CHECK_IF_MINT_IS_RENOUNCED}`);
   logger.info(
     `Min pool size: ${quoteMinPoolSizeAmount.isZero() ? 'false' : quoteMinPoolSizeAmount.toFixed()} ${quoteToken.symbol}`,
@@ -168,7 +170,6 @@ async function init(): Promise<void> {
   logger.info(`Auto sell: ${AUTO_SELL}`);
   logger.info(`Sell delay: ${AUTO_SELL_DELAY === 0 ? 'false' : AUTO_SELL_DELAY}`);
 
-  logger.info(`Paper trade: ${PAPER_TRADE}`);
 
   // check existing wallet for associated token account of quote mint
   const tokenAccounts = await getTokenAccounts(solanaConnection, wallet.publicKey, COMMITMENT_LEVEL);
@@ -219,17 +220,16 @@ export async function processRaydiumPool(id: PublicKey, poolState: LiquidityStat
 
   if (!quoteMinPoolSizeAmount.isZero()) {
     const poolSize = new TokenAmount(quoteToken, poolState.swapQuoteInAmount, true);
-    logger.info(`Processing pool: ${id.toString()} with ${poolSize.toFixed()} ${quoteToken.symbol} in liquidity`);
+    logger.info(`Processing pool: ${id.toString()} with ${poolSize.toFixed(2)} ${quoteToken.symbol} in liquidity`);
+    logger.info(`state ${poolState.state}`);
+    logger.info(`status ${poolState.status}`);
 
     if (poolSize.lt(quoteMinPoolSizeAmount)) {
-      logger.warn(
-        {
-          mint: poolState.baseMint,
-          pooled: `${poolSize.toFixed()} ${quoteToken.symbol}`,
-        },
-        `Skipping pool, smaller than ${quoteMinPoolSizeAmount.toFixed()} ${quoteToken.symbol}`,
-        `Swap quote in amount: ${poolSize.toFixed()}`,
-      );
+      logger.warn(`Skipping pool, smaller than ${quoteMinPoolSizeAmount.toFixed()} ${quoteToken.symbol}`, {
+        mint: poolState.baseMint,
+        pooled: `${poolSize.toFixed()} ${quoteToken.symbol}`,
+        swapQuoteInAmount: poolSize.toFixed(),
+      });
       return;
     }
   }
@@ -238,7 +238,9 @@ export async function processRaydiumPool(id: PublicKey, poolState: LiquidityStat
     const mintOption = await checkMintable(poolState.baseMint);
 
     if (mintOption !== true) {
-      logger.warn({ mint: poolState.baseMint }, 'Skipping, owner can mint tokens!');
+      logger.warn('Skipping, owner can mint tokens!', {
+        mint: poolState.baseMint
+      });
       return;
     }
   }
@@ -260,7 +262,7 @@ export async function checkMintable(vault: PublicKey): Promise<boolean | undefin
     return deserialize.mintAuthorityOption === 0;
   } catch (e) {
     logger.debug(e);
-    logger.error({ mint: vault }, `Failed to check if mint is renounced`);
+    logger.error('Failed to check if mint is renounced', { mint: vault });
   }
 }
 
@@ -277,7 +279,7 @@ export async function processOpenBookMarket(updatedAccountInfo: KeyedAccountInfo
     saveTokenAccount(accountData.baseMint, accountData);
   } catch (e) {
     logger.debug(e);
-    logger.error({ mint: accountData?.baseMint }, `Failed to process market`);
+    logger.error('Failed to process market', { mint: accountData?.baseMint });
   }
 }
 
@@ -329,7 +331,7 @@ async function buy(accountId: PublicKey, accountData: LiquidityStateV4): Promise
     const signature = await solanaConnection.sendRawTransaction(transaction.serialize(), {
       preflightCommitment: COMMITMENT_LEVEL,
     });
-    logger.info({ mint: accountData.baseMint, signature }, `Sent buy tx`);
+    logger.info('Sent buy tx', { mint: accountData.baseMint, signature });
     const confirmation = await solanaConnection.confirmTransaction(
       {
         signature,
@@ -339,21 +341,21 @@ async function buy(accountId: PublicKey, accountData: LiquidityStateV4): Promise
       COMMITMENT_LEVEL,
     );
     if (!confirmation.value.err) {
-      logger.info(
-        {
-          mint: accountData.baseMint,
-          signature,
-          url: `https://solscan.io/tx/${signature}?cluster=${NETWORK}`,
-        },
-        `Confirmed buy tx`,
-      );
+      logger.info('Confirmed buy tx', {
+        mint: accountData.baseMint,
+        signature: signature,
+        url: `https://solscan.io/tx/${signature}?cluster=${NETWORK}`,
+      });
     } else {
       logger.debug(confirmation.value.err);
-      logger.info({ mint: accountData.baseMint, signature }, `Error confirming buy tx`);
+      logger.info('Error confirming buy tx', { mint: accountData.baseMint, signature });
     }
   } catch (e) {
     logger.debug(e);
-    logger.error({ mint: accountData.baseMint }, `Failed to buy token`);
+    logger.error('Failed to buy token', {
+      mint: accountData.baseMint
+    });
+
   }
 }
 
@@ -361,30 +363,30 @@ async function sell(accountId: PublicKey, mint: PublicKey, amount: BigNumberish)
   let sold = false;
   let retries = 0;
 
+  // if delay call this function again with delay
   if (AUTO_SELL_DELAY > 0) {
     await new Promise((resolve) => setTimeout(resolve, AUTO_SELL_DELAY));
   }
 
+  // try until confirmed or failed with max retries
   do {
     try {
       const tokenAccount = existingTokenAccounts.get(mint.toString());
 
       if (!tokenAccount) {
+        logger.error('token account not found');
         return;
       }
 
       if (!tokenAccount.poolKeys) {
-        logger.warn({ mint }, 'No pool keys found');
+        logger.warn('No pool keys found', { mint });
         return;
       }
 
       if (amount === 0) {
-        logger.info(
-          {
-            mint: tokenAccount.mint,
-          },
-          `Empty balance, can't sell`,
-        );
+        logger.info('Empty balance, can\'t sell', {
+          mint: tokenAccount.mint
+        });
         return;
       }
 
@@ -420,7 +422,7 @@ async function sell(accountId: PublicKey, mint: PublicKey, amount: BigNumberish)
       const signature = await solanaConnection.sendRawTransaction(transaction.serialize(), {
         preflightCommitment: COMMITMENT_LEVEL,
       });
-      logger.info({ mint, signature }, `Sent sell tx`);
+      logger.info('Sent sell tx', { mint, signature });
       const confirmation = await solanaConnection.confirmTransaction(
         {
           signature,
@@ -431,26 +433,23 @@ async function sell(accountId: PublicKey, mint: PublicKey, amount: BigNumberish)
       );
       if (confirmation.value.err) {
         logger.debug(confirmation.value.err);
-        logger.info({ mint, signature }, `Error confirming sell tx`);
+        logger.info('Error confirming buy tx', { mint, signature });
         continue;
       }
 
-      logger.info(
-        {
-          dex: `https://dexscreener.com/solana/${mint}?maker=${wallet.publicKey}`,
-          mint,
-          signature,
-          url: `https://solscan.io/tx/${signature}?cluster=${NETWORK}`,
-        },
-        `Confirmed sell tx`,
-      );
+      logger.info('Confirmed sell tx', {
+        dex: `https://dexscreener.com/solana/${mint}?maker=${wallet.publicKey}`,
+        mint,
+        signature,
+        url: `https://solscan.io/tx/${signature}?cluster=${NETWORK}`,
+      });
       sold = true;
     } catch (e: any) {
       // wait for a bit before retrying
       await new Promise((resolve) => setTimeout(resolve, 100));
       retries++;
       logger.debug(e);
-      logger.error({ mint }, `Failed to sell token, retry: ${retries}/${MAX_SELL_RETRIES}`);
+      logger.error(`Failed to sell token, retry: ${retries}/${MAX_SELL_RETRIES}`, { mint });
     }
   } while (!sold && retries < MAX_SELL_RETRIES);
 }
@@ -477,7 +476,9 @@ function shouldBuy(key: string): boolean {
 }
 
 const runListener = async () => {
-  logger.info("Sniper bot")
+  logger.info('------------------- 🤖 ---------------------');
+  logger.info("Openbot Solana")
+  logger.info('------------------- 🤖 ---------------------');
   logger.info("Init")
   await init();
   logger.info("Start Listeners")
@@ -490,6 +491,7 @@ const runListener = async () => {
 
 
   if (AUTO_SELL) {
+    // sell as soon as balance has changed
     const walletSubscriptionId = solanaConnection.onProgramAccountChange(
       TOKEN_PROGRAM_ID,
       async (updatedAccountInfo) => {

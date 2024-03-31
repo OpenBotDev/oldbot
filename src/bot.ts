@@ -1,7 +1,4 @@
 import {
-  BigNumberish,
-  Liquidity,
-  LIQUIDITY_STATE_LAYOUT_V4,
   LiquidityPoolKeys,
   LiquidityStateV4,
   MARKET_STATE_LAYOUT_V3,
@@ -11,26 +8,18 @@ import {
 } from '@raydium-io/raydium-sdk';
 import {
   AccountLayout,
-  createAssociatedTokenAccountIdempotentInstruction,
-  createCloseAccountInstruction,
   getAssociatedTokenAddressSync,
   TOKEN_PROGRAM_ID,
-  getAssociatedTokenAddress
 } from '@solana/spl-token';
 import {
   Keypair,
   Connection,
   PublicKey,
-  ComputeBudgetProgram,
   KeyedAccountInfo,
-  TransactionMessage,
-  VersionedTransaction,
-  LAMPORTS_PER_SOL
 } from '@solana/web3.js';
-import { getTokenAccounts, RAYDIUM_LIQUIDITY_PROGRAM_ID_V4, OPENBOOK_PROGRAM_ID, createPoolKeys } from './liquidity';
+import { getTokenAccounts } from './liquidity';
 import { logger } from './utils/logger';
-import { getMinimalMarketV3, MinimalMarketLayoutV3 } from './market';
-import { MintLayout } from './types';
+import { MinimalMarketLayoutV3 } from './market';
 import bs58 from 'bs58';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -40,8 +29,6 @@ import {
   CHECK_IF_MINT_IS_RENOUNCED,
   COMMITMENT_LEVEL,
   LOG_LEVEL,
-  MAX_SELL_RETRIES,
-  NETWORK,
   PRIVATE_KEY,
   QUOTE_AMOUNT,
   QUOTE_MINT,
@@ -51,12 +38,10 @@ import {
   USE_SNIPE_LIST,
   MIN_POOL_SIZE,
   PAPER_TRADE,
-  USDC_ADDRESS,
-  WSOL_ADDRESS
 } from './constants';
 
 import { listenPools, listenOpenbook } from './raydium'
-import { getTokenBalance, getTokenBalanceQuote, checkMintable, getWalletSOLBalance } from './checks'
+import { getTokenBalanceQuote, checkMintable, getWalletSOLBalance } from './checks'
 import { buy, sell } from './transact'
 
 const connection = new Connection(RPC_ENDPOINT, {
@@ -183,6 +168,7 @@ export async function processRaydiumPool(id: PublicKey, poolState: LiquidityStat
   const MAX_AGE = 120;
   if (delta_seconds > MAX_AGE) {
     logger.warn(`pool already launched ${MAX_AGE} ago`)
+    return;
   }
 
   if (!shouldBuy(poolState.baseMint.toString())) {

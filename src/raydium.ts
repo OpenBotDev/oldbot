@@ -22,7 +22,7 @@ let events = 0;
 type ProcessRaydiumPoolFunction = (id: PublicKey, poolState: LiquidityStateV4) => Promise<void>;
 type ProcessOpenmarketFunction = (updatedAccountInfo: any) => Promise<void>;
 
-const existingLiquidityPools: Set<string> = new Set<string>();
+const knownPools: Set<string> = new Set<string>();
 const existingOpenBookMarkets: Set<string> = new Set<string>();
 
 
@@ -38,6 +38,7 @@ export function listenPools(runTimestamp: number, solanaConnection: any, process
         const delta = (t - runTimestamp);
 
         logger.info('Seconds since start: ' + delta.toFixed(0));
+        logger.info('Known pools: ' + knownPools.size);
         logger.info('Total event count: ' + events);
         logger.info('Events per sec: ' + (events / delta).toFixed(0));
 
@@ -59,33 +60,29 @@ export function listenPools(runTimestamp: number, solanaConnection: any, process
 
             const key = updatedAccountInfo.accountId.toString();
             const poolState = LIQUIDITY_STATE_LAYOUT_V4.decode(updatedAccountInfo.accountInfo.data);
-            const poolOpenTime = parseInt(poolState.poolOpenTime.toString());
-            const existing = existingLiquidityPools.has(key);
 
-            const currentDate = new Date();
-            const t = currentDate.getTime() / 1000;
-            const delta_seconds = (t - poolOpenTime);
-
-            const recent = poolOpenTime > runTimestamp;
+            const existing = knownPools.has(key);
 
             if (existing) {
 
             } else {
+                const poolOpenTime = parseInt(poolState.poolOpenTime.toString());
+                const currentDate = new Date();
+                const t = currentDate.getTime() / 1000;
+                const delta_seconds = (t - poolOpenTime);
+                const dif = poolOpenTime - runTimestamp;
+                const recent = dif > 0;
+
+                knownPools.add(key);
+
                 //unknown pool 
                 if (recent) {
-                    logger.info('recent pool. age seconds: ' + delta_seconds.toFixed(0));
-                    existingLiquidityPools.add(key);
+                    logger.info('Detected recent pool. age seconds: ' + delta_seconds.toFixed(0));
                     const _ = processRaydiumPool(updatedAccountInfo.accountId, poolState);
+                } else {
+                    //logger.info('known pool')
                 }
             }
-            //logger.info('age of pool ' + delta_seconds);
-            //figure out first detection
-            // if (delta_seconds < 300) {
-            //     logger.info('new pool detected ' + delta_seconds);
-            //     logger.info(key);
-            // }
-
-
 
         },
         COMMITMENT_LEVEL,

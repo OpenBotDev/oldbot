@@ -2,7 +2,7 @@
   "name": "solana-sniper-bot",
   "author": "Openbot dev",
   "scripts": {
-    "buy": "ts-node bot.ts",
+    "bot": "ts-node src/bot.ts",
     "tsc": "tsc --noEmit"
   },
   "dependencies": {

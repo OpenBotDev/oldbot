@@ -56,8 +56,10 @@ import {
 } from './constants';
 
 import { listenPools, listenOpenbook } from './raydium'
+import { getTokenBalance, getTokenBalanceQuote, checkMintable, getWalletSOLBalance } from './checks'
+import { buy, sell } from './transact'
 
-const solanaConnection = new Connection(RPC_ENDPOINT, {
+const connection = new Connection(RPC_ENDPOINT, {
   wsEndpoint: RPC_WEBSOCKET_ENDPOINT,
 });
 
@@ -68,7 +70,7 @@ export interface MinimalTokenAccountData {
   market?: MinimalMarketLayoutV3;
 }
 
-const existingTokenAccounts: Map<string, MinimalTokenAccountData> = new Map<string, MinimalTokenAccountData>();
+export const existingTokenAccounts: Map<string, MinimalTokenAccountData> = new Map<string, MinimalTokenAccountData>();
 
 // variables
 let wallet: Keypair;
@@ -80,45 +82,6 @@ let quoteMinPoolSizeAmount: TokenAmount;
 let snipeList: string[] = [];
 
 
-async function getTokenBalance(walletPublicKey: PublicKey, mintAddress: string): Promise<number | null> {
-  const walletPubKey = new PublicKey(walletPublicKey);
-  const tokenMintPubKey = new PublicKey(mintAddress);
-
-  const associatedTokenAddress = await getAssociatedTokenAddress(tokenMintPubKey, walletPubKey);
-
-  try {
-    // Query the balance
-    const balanceResult = await solanaConnection.getTokenAccountBalance(associatedTokenAddress);
-    return balanceResult.value.uiAmount;
-  } catch (error) {
-    console.error(`Could not fetch balance for account ${associatedTokenAddress.toString()}: ${error}`);
-    return null;
-  }
-}
-
-async function getTokenBalanceQuote(walletPublicKey: PublicKey, QUOTE_MINT: string): Promise<number | null> {
-  let mintAddress = undefined;
-  if (QUOTE_MINT === 'WSOL') {
-    mintAddress = WSOL_ADDRESS;
-  }
-  if (QUOTE_MINT === 'USDC') {
-    mintAddress = USDC_ADDRESS;
-  }
-  if (!mintAddress) return null;
-
-  return getTokenBalance(walletPublicKey, mintAddress);
-
-}
-
-async function getWalletSOLBalance(connection: any) {
-  try {
-    const balance = await connection.getBalance(wallet.publicKey) / LAMPORTS_PER_SOL;
-    return balance;
-
-  } catch (error) {
-    logger.error('Error getting wallet balance: ' + error);
-  }
-};
 
 
 async function init(): Promise<void> {
@@ -129,10 +92,10 @@ async function init(): Promise<void> {
   logger.info(`Wallet Address: ${wallet.publicKey}`);
 
   // get wallet balance for QUOTE_MINT token
-  const wsol_balance = await getTokenBalanceQuote(wallet.publicKey, 'WSOL');
+  const wsol_balance = await getTokenBalanceQuote(wallet.publicKey, 'WSOL', connection);
   logger.info(`Wallet WSOL Balance: ${wsol_balance}`);
 
-  const sol_balance = await getWalletSOLBalance(solanaConnection);
+  const sol_balance = await getWalletSOLBalance(connection, wallet);
   logger.info(`Wallet balance: ${sol_balance}`);
 
   // get quote mint and amount
@@ -172,7 +135,7 @@ async function init(): Promise<void> {
 
 
   // check existing wallet for associated token account of quote mint
-  const tokenAccounts = await getTokenAccounts(solanaConnection, wallet.publicKey, COMMITMENT_LEVEL);
+  const tokenAccounts = await getTokenAccounts(connection, wallet.publicKey, COMMITMENT_LEVEL);
 
   for (const ta of tokenAccounts) {
     existingTokenAccounts.set(ta.accountInfo.mint.toString(), <MinimalTokenAccountData>{
@@ -197,7 +160,7 @@ async function init(): Promise<void> {
   loadSnipeList();
 }
 
-function saveTokenAccount(mint: PublicKey, accountData: MinimalMarketLayoutV3) {
+export function saveTokenAccount(mint: PublicKey, accountData: MinimalMarketLayoutV3) {
   const ata = getAssociatedTokenAddressSync(mint, wallet.publicKey);
   const tokenAccount = <MinimalTokenAccountData>{
     address: ata,
@@ -235,7 +198,7 @@ export async function processRaydiumPool(id: PublicKey, poolState: LiquidityStat
   }
 
   if (CHECK_IF_MINT_IS_RENOUNCED) {
-    const mintOption = await checkMintable(poolState.baseMint);
+    const mintOption = await checkMintable(poolState.baseMint, connection);
 
     if (mintOption !== true) {
       logger.warn('Skipping, owner can mint tokens!', {
@@ -246,25 +209,12 @@ export async function processRaydiumPool(id: PublicKey, poolState: LiquidityStat
   }
 
   if (!PAPER_TRADE) {
-    await buy(id, poolState);
+    await buy(id, poolState, connection, wallet, quoteTokenAssociatedAddress, quoteAmount);
   } else {
     logger.info('PAPER BUY ' + id);
   }
 }
 
-export async function checkMintable(vault: PublicKey): Promise<boolean | undefined> {
-  try {
-    let { data } = (await solanaConnection.getAccountInfo(vault)) || {};
-    if (!data) {
-      return;
-    }
-    const deserialize = MintLayout.decode(data);
-    return deserialize.mintAuthorityOption === 0;
-  } catch (e) {
-    logger.debug(e);
-    logger.error('Failed to check if mint is renounced', { mint: vault });
-  }
-}
 
 export async function processOpenBookMarket(updatedAccountInfo: KeyedAccountInfo) {
   let accountData: MarketStateV3 | undefined;
@@ -281,177 +231,6 @@ export async function processOpenBookMarket(updatedAccountInfo: KeyedAccountInfo
     logger.debug(e);
     logger.error('Failed to process market', { mint: accountData?.baseMint });
   }
-}
-
-async function buy(accountId: PublicKey, accountData: LiquidityStateV4): Promise<void> {
-  try {
-    let tokenAccount = existingTokenAccounts.get(accountData.baseMint.toString());
-
-    if (!tokenAccount) {
-      // it's possible that we didn't have time to fetch open book data
-      const market = await getMinimalMarketV3(solanaConnection, accountData.marketId, COMMITMENT_LEVEL);
-      tokenAccount = saveTokenAccount(accountData.baseMint, market);
-    }
-
-    tokenAccount.poolKeys = createPoolKeys(accountId, accountData, tokenAccount.market!);
-    const { innerTransaction } = Liquidity.makeSwapFixedInInstruction(
-      {
-        poolKeys: tokenAccount.poolKeys,
-        userKeys: {
-          tokenAccountIn: quoteTokenAssociatedAddress,
-          tokenAccountOut: tokenAccount.address,
-          owner: wallet.publicKey,
-        },
-        amountIn: quoteAmount.raw,
-        minAmountOut: 0,
-      },
-      tokenAccount.poolKeys.version,
-    );
-
-    const latestBlockhash = await solanaConnection.getLatestBlockhash({
-      commitment: COMMITMENT_LEVEL,
-    });
-    const messageV0 = new TransactionMessage({
-      payerKey: wallet.publicKey,
-      recentBlockhash: latestBlockhash.blockhash,
-      instructions: [
-        ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 421197 }),
-        ComputeBudgetProgram.setComputeUnitLimit({ units: 101337 }),
-        createAssociatedTokenAccountIdempotentInstruction(
-          wallet.publicKey,
-          tokenAccount.address,
-          wallet.publicKey,
-          accountData.baseMint,
-        ),
-        ...innerTransaction.instructions,
-      ],
-    }).compileToV0Message();
-    const transaction = new VersionedTransaction(messageV0);
-    transaction.sign([wallet, ...innerTransaction.signers]);
-    const signature = await solanaConnection.sendRawTransaction(transaction.serialize(), {
-      preflightCommitment: COMMITMENT_LEVEL,
-    });
-    logger.info('Sent buy tx', { mint: accountData.baseMint, signature });
-    const confirmation = await solanaConnection.confirmTransaction(
-      {
-        signature,
-        lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
-        blockhash: latestBlockhash.blockhash,
-      },
-      COMMITMENT_LEVEL,
-    );
-    if (!confirmation.value.err) {
-      logger.info('Confirmed buy tx', {
-        mint: accountData.baseMint,
-        signature: signature,
-        url: `https://solscan.io/tx/${signature}?cluster=${NETWORK}`,
-      });
-    } else {
-      logger.debug(confirmation.value.err);
-      logger.info('Error confirming buy tx', { mint: accountData.baseMint, signature });
-    }
-  } catch (e) {
-    logger.debug(e);
-    logger.error('Failed to buy token', {
-      mint: accountData.baseMint
-    });
-
-  }
-}
-
-async function sell(accountId: PublicKey, mint: PublicKey, amount: BigNumberish): Promise<void> {
-  let sold = false;
-  let retries = 0;
-
-  // if delay call this function again with delay
-  if (AUTO_SELL_DELAY > 0) {
-    await new Promise((resolve) => setTimeout(resolve, AUTO_SELL_DELAY));
-  }
-
-  // try until confirmed or failed with max retries
-  do {
-    try {
-      const tokenAccount = existingTokenAccounts.get(mint.toString());
-
-      if (!tokenAccount) {
-        logger.error('token account not found');
-        return;
-      }
-
-      if (!tokenAccount.poolKeys) {
-        logger.warn('No pool keys found', { mint });
-        return;
-      }
-
-      if (amount === 0) {
-        logger.info('Empty balance, can\'t sell', {
-          mint: tokenAccount.mint
-        });
-        return;
-      }
-
-      const { innerTransaction } = Liquidity.makeSwapFixedInInstruction(
-        {
-          poolKeys: tokenAccount.poolKeys!,
-          userKeys: {
-            tokenAccountOut: quoteTokenAssociatedAddress,
-            tokenAccountIn: tokenAccount.address,
-            owner: wallet.publicKey,
-          },
-          amountIn: amount,
-          minAmountOut: 0,
-        },
-        tokenAccount.poolKeys!.version,
-      );
-
-      const latestBlockhash = await solanaConnection.getLatestBlockhash({
-        commitment: COMMITMENT_LEVEL,
-      });
-      const messageV0 = new TransactionMessage({
-        payerKey: wallet.publicKey,
-        recentBlockhash: latestBlockhash.blockhash,
-        instructions: [
-          ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 421197 }),
-          ComputeBudgetProgram.setComputeUnitLimit({ units: 101337 }),
-          ...innerTransaction.instructions,
-          createCloseAccountInstruction(tokenAccount.address, wallet.publicKey, wallet.publicKey),
-        ],
-      }).compileToV0Message();
-      const transaction = new VersionedTransaction(messageV0);
-      transaction.sign([wallet, ...innerTransaction.signers]);
-      const signature = await solanaConnection.sendRawTransaction(transaction.serialize(), {
-        preflightCommitment: COMMITMENT_LEVEL,
-      });
-      logger.info('Sent sell tx', { mint, signature });
-      const confirmation = await solanaConnection.confirmTransaction(
-        {
-          signature,
-          lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
-          blockhash: latestBlockhash.blockhash,
-        },
-        COMMITMENT_LEVEL,
-      );
-      if (confirmation.value.err) {
-        logger.debug(confirmation.value.err);
-        logger.info('Error confirming buy tx', { mint, signature });
-        continue;
-      }
-
-      logger.info('Confirmed sell tx', {
-        dex: `https://dexscreener.com/solana/${mint}?maker=${wallet.publicKey}`,
-        mint,
-        signature,
-        url: `https://solscan.io/tx/${signature}?cluster=${NETWORK}`,
-      });
-      sold = true;
-    } catch (e: any) {
-      // wait for a bit before retrying
-      await new Promise((resolve) => setTimeout(resolve, 100));
-      retries++;
-      logger.debug(e);
-      logger.error(`Failed to sell token, retry: ${retries}/${MAX_SELL_RETRIES}`, { mint });
-    }
-  } while (!sold && retries < MAX_SELL_RETRIES);
 }
 
 function loadSnipeList() {
@@ -485,14 +264,14 @@ const runListener = async () => {
 
   const runTimestamp = Math.floor(new Date().getTime() / 1000);
 
-  listenPools(runTimestamp, solanaConnection, processRaydiumPool);
+  listenPools(runTimestamp, connection, processRaydiumPool);
 
-  listenOpenbook(solanaConnection, processOpenBookMarket);
+  listenOpenbook(connection, processOpenBookMarket);
 
 
   if (AUTO_SELL) {
     // sell as soon as balance has changed
-    const walletSubscriptionId = solanaConnection.onProgramAccountChange(
+    const walletSubscriptionId = connection.onProgramAccountChange(
       TOKEN_PROGRAM_ID,
       async (updatedAccountInfo) => {
         const accountData = AccountLayout.decode(updatedAccountInfo.accountInfo!.data);
@@ -501,7 +280,7 @@ const runListener = async () => {
           return;
         }
 
-        const _ = sell(updatedAccountInfo.accountId, accountData.mint, accountData.amount);
+        const _ = sell(updatedAccountInfo.accountId, accountData.mint, accountData.amount, connection, wallet, quoteTokenAssociatedAddress);
       },
       COMMITMENT_LEVEL,
       [

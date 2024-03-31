@@ -6,7 +6,6 @@ const WebSocket = require('ws');
 
 function WSTransport(opts) {
     Transport.call(this, opts);
-    // Save the WebSocket server reference
     this.wss = opts.wss;
 }
 

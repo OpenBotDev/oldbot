@@ -6,10 +6,14 @@
     <title>Openbot</title>
     <style>
         /* Style for the message box */
+        #messageTable {
+            border: 1px solid #211c4e;
+        }
+
         #messageBox {
-            border: 1px solid #ddd;
+            /* border: 1px solid #ddd; */
             /* Light gray border */
-            background-color: #f4f4f4;
+            /* background-color: #f4f4f4; */
             /* Light gray background */
             padding: 10px;
             /* Some padding inside the box */
@@ -27,6 +31,19 @@
     <h2>Openbot Beta</h2>
     <div id="messageBox">
         <!-- Messages will be added here -->
+        <table id="messageTable">
+            <thead>
+                <tr>
+                    <th>Timestamp</th>
+                    <th>Level</th>
+                    <th>Message</th>
+                </tr>
+            </thead>
+            <tbody>
+                <!-- Messages will be added here -->
+            </tbody>
+        </table>
+
     </div>
 
     <script>
@@ -39,10 +56,28 @@
 
         ws.onmessage = function (event) {
             console.log('Message from server: ', event.data);
-            // Create a new div element for each message and append it to the message box
-            const messageElement = document.createElement('div');
-            messageElement.textContent = event.data;
-            messageBox.appendChild(messageElement);
+
+            // Attempt to parse the incoming message as JSON
+            try {
+                const logEntry = JSON.parse(event.data);
+
+                // Create a new row and cells for the timestamp, level, and message
+                const row = document.createElement('tr');
+                const timestampCell = row.insertCell(0);
+                const levelCell = row.insertCell(1);
+                const messageCell = row.insertCell(2);
+
+                // Assign the values to the cells
+                timestampCell.textContent = logEntry.timestamp;
+                levelCell.textContent = logEntry.level;
+                messageCell.textContent = logEntry.message;
+
+                // Append the new row to the table body
+                const messageTableBody = document.querySelector('#messageTable tbody');
+                messageTableBody.appendChild(row);
+            } catch (e) {
+                console.error('Error parsing message from server:', e);
+            }
         };
 
         ws.onclose = function () {

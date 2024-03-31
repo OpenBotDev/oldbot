@@ -91,7 +91,7 @@ async function getTokenBalance(walletPublicKey: PublicKey, mintAddress: string):
     const balanceResult = await solanaConnection.getTokenAccountBalance(associatedTokenAddress);
     return balanceResult.value.uiAmount;
   } catch (error) {
-    console.error(`Could not fetch balance for account ${associatedTokenAddress.toString()}: ${error}`);
+    logger.error(`Could not fetch balance for account ${associatedTokenAddress.toString()}: ${error}`);
     return null;
   }
 }

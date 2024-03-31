@@ -13,11 +13,13 @@
     "bn.js": "^5.2.1",
     "bs58": "^5.0.0",
     "dotenv": "^16.4.1",
+    "express": "^4.19.2",
     "pino": "^8.18.0",
     "pino-multi-stream": "^6.0.0",
     "pino-pretty": "^10.3.1",
     "pino-std-serializers": "^6.2.2",
-    "winston": "^3.13.0"
+    "winston": "^3.13.0",
+    "ws": "^8.16.0"
   },
   "devDependencies": {
     "@types/bn.js": "^5.1.5",

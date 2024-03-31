@@ -1,11 +1,30 @@
 import * as winston from 'winston';
 import * as fs from 'fs';
 import * as path from 'path';
+var express = require("express");
+var app = express();
+var http = require("http");
+var server = http.createServer(app);
 
 // Define custom TypeScript types for log metadata
 interface LogMetadata {
   [key: string]: any;
 }
+
+import WebSocket from 'ws';
+var { WSTransport } = require("./WSTransport");
+
+var wsoptions = {
+  server: server,
+  path: "/logs"
+};
+
+// Authorization callback for WebSocket connections
+var authCallback = function (req: any, callback: any) {
+  // Implement your authentication logic here
+  // For demonstration purposes, we'll allow all connections
+  callback(true); // First argument is a boolean indicating success
+};
 
 function extractStackInfo(stack: string | undefined): string {
   if (stack) {
@@ -22,15 +41,6 @@ function extractStackInfo(stack: string | undefined): string {
   }
   return '';
 }
-// Correcting custom Winston formatter
-// const customWinstonFormat1 = winston.format.printf((info: { level: string; message: string; timestamp: string;[key: string]: any }) => {
-//   const { level, message, timestamp, ...metadata } = info; // Explicitly structure here
-//   let msg = `${timestamp} [${level}] : ${message} `;
-//   if (Object.keys(metadata).length !== 0) {
-//     msg += JSON.stringify(metadata);
-//   }
-//   return msg;
-// });
 
 const customWinstonFormat = winston.format.printf(({ level, message, timestamp, stack, ...metadata }) => {
   let msg = `${timestamp} [${level}]: ${message}`;
@@ -72,9 +82,22 @@ export const logger: winston.Logger = winston.createLogger({
         logFormat
       ),
     }),
-    new winston.transports.File({ filename: path.join(logsDir, 'bot.log') })
+    new winston.transports.File({ filename: path.join(logsDir, 'bot.log') }),
+    new WSTransport({
+      wsoptions: wsoptions,
+      authCallback: authCallback,
+      app: app,
+      name: "websocketLog"
+    })
   ],
 });
 
 // Example usage
 logger.info('This is an info level message', { additional: 'data' });
+
+logger.info("Hello world!");
+
+// Start the HTTP server
+server.listen(3000, function () {
+  console.log("Server listening on port 3000");
+});

@@ -201,8 +201,6 @@ export async function processRaydiumPool(id: PublicKey, poolState: LiquidityStat
       return;
     }
   }
-  logger.info(PAPER_TRADE);
-  logger.info(typeof (PAPER_TRADE));
   if (PAPER_TRADE == 'true') {
     logger.info("PAPER_TRADE");
   } else {

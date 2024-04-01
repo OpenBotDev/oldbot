@@ -1,39 +1,23 @@
 import {
     BigNumberish,
     Liquidity,
-    LIQUIDITY_STATE_LAYOUT_V4,
-    LiquidityPoolKeys,
     LiquidityStateV4,
-    MARKET_STATE_LAYOUT_V3,
-    MarketStateV3,
-    Token,
-    TokenAmount,
 } from '@raydium-io/raydium-sdk';
 import {
-    AccountLayout,
     createAssociatedTokenAccountIdempotentInstruction,
     createCloseAccountInstruction,
-    getAssociatedTokenAddressSync,
-    TOKEN_PROGRAM_ID,
-    getAssociatedTokenAddress
 } from '@solana/spl-token';
 import {
     Keypair,
     Connection,
     PublicKey,
     ComputeBudgetProgram,
-    KeyedAccountInfo,
     TransactionMessage,
     VersionedTransaction,
-    LAMPORTS_PER_SOL
 } from '@solana/web3.js';
 import { createPoolKeys } from './liquidity';
 import { logger } from './utils/logger';
-import { getMinimalMarketV3, MinimalMarketLayoutV3 } from './market';
-import { MintLayout } from './types';
-import bs58 from 'bs58';
-import * as fs from 'fs';
-import * as path from 'path';
+import { getMinimalMarketV3 } from './market';
 import {
     AUTO_SELL_DELAY,
     COMMITMENT_LEVEL,
@@ -41,10 +25,51 @@ import {
     NETWORK,
 } from './constants';
 
-import { listenPools, listenOpenbook } from './raydium'
-import { getTokenBalance, getTokenBalanceQuote, checkMintable, getWalletSOLBalance } from './checks'
 import { existingTokenAccounts, saveTokenAccount } from './bot'
 
+async function submitMaxWait(connection: Connection, transaction: any, accountData: any, latestBlockhash: any) {
+    // Sending the transaction
+    const signature = await connection.sendRawTransaction(transaction.serialize(), {
+        preflightCommitment: COMMITMENT_LEVEL,
+    });
+    logger.info('Sent buy tx', { mint: accountData.baseMint, signature });
+
+    // Timeout promise that resolves after 5 seconds
+    const timeout = new Promise((resolve) => {
+        setTimeout(() => {
+            resolve({ timeout: true });
+        }, 5000); // 5 seconds
+    });
+
+    // Promise for transaction confirmation
+    const confirmationPromise = connection.confirmTransaction({
+        signature,
+        lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
+        blockhash: latestBlockhash.blockhash,
+    }, COMMITMENT_LEVEL);
+
+    // Race the confirmation promise against the timeout
+    const result: any = await Promise.race([confirmationPromise, timeout]);
+
+    // Handling the race result
+    if (result.timeout) {
+        // If the timeout promise resolves first, log an error
+        logger.error('Transaction confirmation timed out');
+    } else if (!result.value.err) {
+        // If the confirmation is received without errors
+        logger.info('Confirmed buy tx', {
+            mint: accountData.baseMint,
+            signature: signature,
+            url: `https://solscan.io/tx/${signature}?cluster=${NETWORK}`,
+        });
+    } else {
+        // If there is an error in transaction confirmation
+        logger.debug(result.value.err);
+        logger.info('Error confirming buy tx', { mint: accountData.baseMint, signature });
+    }
+
+    //SendTransactionError: failed to send transaction: Transaction simulation failed: Blockhash not found
+}
 
 export async function buy(accountId: PublicKey, accountData: LiquidityStateV4, connection: Connection, wallet: any, quoteTokenAssociatedAddress: any, quoteAmount: any): Promise<void> {
     try {
@@ -91,28 +116,8 @@ export async function buy(accountId: PublicKey, accountData: LiquidityStateV4, c
         }).compileToV0Message();
         const transaction = new VersionedTransaction(messageV0);
         transaction.sign([wallet, ...innerTransaction.signers]);
-        const signature = await connection.sendRawTransaction(transaction.serialize(), {
-            preflightCommitment: COMMITMENT_LEVEL,
-        });
-        logger.info('Sent buy tx', { mint: accountData.baseMint, signature });
-        const confirmation = await connection.confirmTransaction(
-            {
-                signature,
-                lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
-                blockhash: latestBlockhash.blockhash,
-            },
-            COMMITMENT_LEVEL,
-        );
-        if (!confirmation.value.err) {
-            logger.info('Confirmed buy tx', {
-                mint: accountData.baseMint,
-                signature: signature,
-                url: `https://solscan.io/tx/${signature}?cluster=${NETWORK}`,
-            });
-        } else {
-            logger.debug(confirmation.value.err);
-            logger.info('Error confirming buy tx', { mint: accountData.baseMint, signature });
-        }
+        submitMaxWait(connection, transaction, accountData, latestBlockhash);
+
     } catch (e) {
         logger.debug(e);
         logger.error('Failed to buy token', {

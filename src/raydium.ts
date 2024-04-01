@@ -52,6 +52,11 @@ export function listenPools(runTimestamp: number, solanaConnection: any, process
         }
     }, waitTime); // seconds
 
+    // Processed
+    // Confirmed
+    // Finalized
+    //https://solana-labs.github.io/solana-web3.js/types/Commitment.html
+    const POOL_COMMITMENT_LEVEL = 'recent';
 
     const raydiumSubscriptionId = solanaConnection.onProgramAccountChange(
         RAYDIUM_LIQUIDITY_PROGRAM_ID_V4,
@@ -85,7 +90,7 @@ export function listenPools(runTimestamp: number, solanaConnection: any, process
             }
 
         },
-        COMMITMENT_LEVEL,
+        POOL_COMMITMENT_LEVEL,
         [
             { dataSize: LIQUIDITY_STATE_LAYOUT_V4.span },
             {
@@ -120,8 +125,6 @@ export function listenOpenbook(solanaConnection: any, processOpenmarket: Process
             const existing = existingOpenBookMarkets.has(key);
             if (!existing) {
                 existingOpenBookMarkets.add(key);
-                //TODO
-                //const _ = processOpenBookMarket(updatedAccountInfo);
                 processOpenmarket(updatedAccountInfo);
             }
         },

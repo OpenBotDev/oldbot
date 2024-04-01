@@ -114,10 +114,10 @@ export async function buy(accountId: PublicKey, accountData: LiquidityStateV4, c
             logger.info('Error confirming buy tx', { mint: accountData.baseMint, signature });
         }
     } catch (e) {
-        logger.debug(e);
         logger.error('Failed to buy token', {
             mint: accountData.baseMint
         });
+        logger.error(e);
 
     }
 }
@@ -211,8 +211,8 @@ export async function sell(accountId: PublicKey, mint: PublicKey, amount: BigNum
             // wait for a bit before retrying
             await new Promise((resolve) => setTimeout(resolve, 100));
             retries++;
-            logger.debug(e);
             logger.error(`Failed to sell token, retry: ${retries}/${MAX_SELL_RETRIES}`, { mint });
+            logger.error(e);
         }
     } while (!sold && retries < MAX_SELL_RETRIES);
 }

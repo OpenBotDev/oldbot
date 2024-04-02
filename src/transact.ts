@@ -1,21 +1,11 @@
 import {
     BigNumberish,
     Liquidity,
-    LIQUIDITY_STATE_LAYOUT_V4,
-    LiquidityPoolKeys,
     LiquidityStateV4,
-    MARKET_STATE_LAYOUT_V3,
-    MarketStateV3,
-    Token,
-    TokenAmount,
 } from '@raydium-io/raydium-sdk';
 import {
-    AccountLayout,
     createAssociatedTokenAccountIdempotentInstruction,
     createCloseAccountInstruction,
-    getAssociatedTokenAddressSync,
-    TOKEN_PROGRAM_ID,
-    getAssociatedTokenAddress
 } from '@solana/spl-token';
 import {
     Keypair,
@@ -25,7 +15,6 @@ import {
     KeyedAccountInfo,
     TransactionMessage,
     VersionedTransaction,
-    LAMPORTS_PER_SOL
 } from '@solana/web3.js';
 import { createPoolKeys } from './liquidity';
 import { logger } from './utils/logger';
@@ -50,6 +39,7 @@ export async function buy(accountId: PublicKey, accountData: LiquidityStateV4, c
     try {
         let tokenAccount = existingTokenAccounts.get(accountData.baseMint.toString());
 
+        //TODO 
         if (!tokenAccount) {
             // it's possible that we didn't have time to fetch open book data
             const market = await getMinimalMarketV3(connection, accountData.marketId, COMMITMENT_LEVEL);
@@ -71,12 +61,17 @@ export async function buy(accountId: PublicKey, accountData: LiquidityStateV4, c
             tokenAccount.poolKeys.version,
         );
 
-        const latestBlockhash = await connection.getLatestBlockhash({
-            commitment: COMMITMENT_LEVEL,
+        const HASH_COMMITMENT_LEVEL = 'confirmed';
+
+        const latestBlockhashResult = await connection.getLatestBlockhashAndContext({
+            commitment: HASH_COMMITMENT_LEVEL,
         });
+        let hash = latestBlockhashResult.value.blockhash;
+        let blockheight = latestBlockhashResult.value.lastValidBlockHeight;
+        logger.info(`Preparing buy. hash ${hash} blockheight ${blockheight}`)
         const messageV0 = new TransactionMessage({
             payerKey: wallet.publicKey,
-            recentBlockhash: latestBlockhash.blockhash,
+            recentBlockhash: hash,
             instructions: [
                 ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 421197 }),
                 ComputeBudgetProgram.setComputeUnitLimit({ units: 101337 }),
@@ -95,11 +90,13 @@ export async function buy(accountId: PublicKey, accountData: LiquidityStateV4, c
             preflightCommitment: COMMITMENT_LEVEL,
         });
         logger.info('Sent buy tx', { mint: accountData.baseMint, signature });
+
+        //TODO loop
         const confirmation = await connection.confirmTransaction(
             {
                 signature,
-                lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
-                blockhash: latestBlockhash.blockhash,
+                lastValidBlockHeight: latestBlockhashResult.value.lastValidBlockHeight,
+                blockhash: hash,
             },
             COMMITMENT_LEVEL,
         );
@@ -117,8 +114,11 @@ export async function buy(accountId: PublicKey, accountData: LiquidityStateV4, c
         logger.error('Failed to buy token', {
             mint: accountData.baseMint
         });
-        logger.error(e);
-
+        if (e instanceof Error) {
+            logger.error(e.stack);
+        } else {
+            logger.error('An error occurred:', e);
+        }
     }
 }
 
@@ -126,6 +126,7 @@ export async function sell(accountId: PublicKey, mint: PublicKey, amount: BigNum
     let sold = false;
     let retries = 0;
 
+    //TODO move this to bot
     // if delay call this function again with delay
     if (AUTO_SELL_DELAY > 0) {
         await new Promise((resolve) => setTimeout(resolve, AUTO_SELL_DELAY));

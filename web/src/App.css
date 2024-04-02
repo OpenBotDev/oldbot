@@ -1,0 +1,53 @@
+/* App.css */
+body,
+html {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  font-family: Arial, sans-serif;
+}
+
+/* Overrides for specific elements if needed */
+h1 {
+  font-size: 2rem;
+  /* Adjust based on your design needs */
+}
+
+
+/* Custom styles for the message box */
+#messageBox {
+  width: 100%;
+  /* React Bootstrap already provides responsive width, consider if adjustment is needed */
+  margin-top: 10px;
+  padding: 10px;
+  border: 1px solid #ddd;
+  background-color: #f4f4f4;
+  overflow: hidden;
+}
+
+/* You might not need these if you use React Bootstrap's Table component */
+#messageTable th,
+#messageTable td {
+  padding: 8px;
+  /* Default padding for table cells */
+}
+
+#messageTable th {
+  background-color: #211c4e;
+  color: white;
+}
+
+/* Custom button styles, if you're not using React Bootstrap's Button */
+.custom-button {
+  padding: 10px;
+  background-color: #4CAF50;
+  /* Green */
+  color: white;
+  border: none;
+  cursor: pointer;
+}
+
+.custom-button:hover {
+  background-color: #45a049;
+}

@@ -18,21 +18,14 @@ const WSTransport = require('./utils/wstransport');
 //     name: "websocketLog"
 //   })
 
-var wsoptions = {
-    server: server,
-    path: "/logs"
-};
-
 //logger.add(new WSTransport({ wsoptions: wsoptions, }));
 logger.add(new WSTransport({ wss: wss }));
 
-
-
-app.get('/', (req: any, res: any) => {
-    // Specify the path to your index.html
-    const indexPath = path.join(__dirname, 'index.html');
-    res.sendFile(indexPath);
-});
+// app.get('/', (req: any, res: any) => {
+//     // Specify the path to your index.html
+//     const indexPath = path.join(__dirname, 'index.html');
+//     res.sendFile(indexPath);
+// });
 
 // WebSocket connection handler
 wss.on('connection', (ws: any) => {

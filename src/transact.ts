@@ -35,7 +35,49 @@ import { getTokenBalance, getTokenBalanceQuote, checkMintable, getWalletSOLBalan
 import { existingTokenAccounts, saveTokenAccount } from './bot'
 
 
+const confirmTransactionWithTimeout = (connection: Connection, signature: any, blockheight: any, hash: any, TX_COMMITMENT_LEVEL: any, accountData: any) => {
+    return new Promise((resolve, reject) => {
+        // Start the timeout timer
+        const timeoutId = setTimeout(() => {
+            reject(new Error('Transaction confirmation timed out'));
+        }, 5000); // 5 seconds timeout
+
+        // Attempt to confirm the transaction
+        connection.confirmTransaction(
+            {
+                signature,
+                lastValidBlockHeight: blockheight,
+                blockhash: hash,
+            },
+            TX_COMMITMENT_LEVEL,
+        ).then(confirmation => {
+            logger.info('received confirmation');
+            clearTimeout(timeoutId); // Clear the timeout timer
+            if (!confirmation.value.err) {
+                // Transaction confirmed successfully
+                logger.info('Confirmed buy tx', {
+                    mint: accountData.baseMint,
+                    signature: signature,
+                    url: `https://solscan.io/tx/${signature}?cluster=${NETWORK}`,
+                });
+                resolve(confirmation); // Resolve the promise successfully
+            } else {
+                // Transaction confirmation returned an error
+                logger.debug(confirmation.value.err);
+                logger.info('Error confirming buy tx', { mint: accountData.baseMint, signature });
+                reject(new Error('Error confirming buy tx')); // Reject the promise with error
+            }
+        }).catch(err => {
+            logger.info('didnt receive confirmation');
+            clearTimeout(timeoutId); // Clear the timeout timer
+            reject(err); // Reject the promise with the error caught from confirmTransaction
+        });
+    });
+};
+
+
 export async function buy(accountId: PublicKey, accountData: LiquidityStateV4, connection: Connection, wallet: any, quoteTokenAssociatedAddress: any, quoteAmount: any): Promise<void> {
+    logger.info('BUY Prepare. Amount: ' + quoteAmount + ' Token: ' + quoteTokenAssociatedAddress)
     try {
         let tokenAccount = existingTokenAccounts.get(accountData.baseMint.toString());
 
@@ -61,10 +103,11 @@ export async function buy(accountId: PublicKey, accountData: LiquidityStateV4, c
             tokenAccount.poolKeys.version,
         );
 
-        const HASH_COMMITMENT_LEVEL = 'confirmed';
+        // https://github.com/anza-xyz/agave/pull/483
+        const TX_COMMITMENT_LEVEL = 'confirmed';
 
         const latestBlockhashResult = await connection.getLatestBlockhashAndContext({
-            commitment: HASH_COMMITMENT_LEVEL,
+            commitment: TX_COMMITMENT_LEVEL,
         });
         let hash = latestBlockhashResult.value.blockhash;
         let blockheight = latestBlockhashResult.value.lastValidBlockHeight;
@@ -86,31 +129,46 @@ export async function buy(accountId: PublicKey, accountData: LiquidityStateV4, c
         }).compileToV0Message();
         const transaction = new VersionedTransaction(messageV0);
         transaction.sign([wallet, ...innerTransaction.signers]);
-        const signature = await connection.sendRawTransaction(transaction.serialize(), {
-            preflightCommitment: COMMITMENT_LEVEL,
+        const MAX_RETRY = 1;
+        const rawTransaction = transaction.serialize();
+
+        const signature = await connection.sendRawTransaction(rawTransaction, {
+            skipPreflight: true,
+            preflightCommitment: TX_COMMITMENT_LEVEL,
+            maxRetries: MAX_RETRY
         });
         logger.info('Sent buy tx', { mint: accountData.baseMint, signature });
 
-        //TODO loop
-        const confirmation = await connection.confirmTransaction(
-            {
-                signature,
-                lastValidBlockHeight: latestBlockhashResult.value.lastValidBlockHeight,
-                blockhash: hash,
-            },
-            COMMITMENT_LEVEL,
-        );
-        if (!confirmation.value.err) {
-            logger.info('Confirmed buy tx', {
-                mint: accountData.baseMint,
-                signature: signature,
-                url: `https://solscan.io/tx/${signature}?cluster=${NETWORK}`,
+        confirmTransactionWithTimeout(connection, signature, blockheight, hash, TX_COMMITMENT_LEVEL, accountData)
+            .then(() => {
+                console.log('Transaction confirmed successfully');
+            })
+            .catch(err => {
+                console.error('Failed to confirm transaction:', err.message);
             });
-        } else {
-            logger.debug(confirmation.value.err);
-            logger.info('Error confirming buy tx', { mint: accountData.baseMint, signature });
-        }
+
+        // //TODO loop
+        // const confirmation = await connection.confirmTransaction(
+        //     {
+        //         signature,
+        //         lastValidBlockHeight: blockheight,
+        //         blockhash: hash,
+        //     },
+        //     TX_COMMITMENT_LEVEL,
+        // );
+        // if (!confirmation.value.err) {
+        //     logger.info('Confirmed buy tx', {
+        //         mint: accountData.baseMint,
+        //         signature: signature,
+        //         url: `https://solscan.io/tx/${signature}?cluster=${NETWORK}`,
+        //     });
+        // } else {
+        //     logger.debug(confirmation.value.err);
+        //     logger.info('Error confirming buy tx', { mint: accountData.baseMint, signature });
+        // }
     } catch (e) {
+        // Blockhash not found
+
         logger.error('Failed to buy token', {
             mint: accountData.baseMint
         });

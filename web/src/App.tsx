@@ -20,24 +20,26 @@ function MessageBoard({ messages }) {
   return (
     <div className="mt-5">
       <h1>Bot info</h1>
-      <Table striped bordered hover>
-        <thead>
-          <tr>
-            <th>Timestamp</th>
-            <th>Level</th>
-            <th>Message</th>
-          </tr>
-        </thead>
-        <tbody>
-          {messages.map((msg, index) => (
-            <tr key={index}>
-              <td>{msg.timestamp}</td>
-              <td>{msg.level}</td>
-              <td>{msg.message}</td>
+      <div className="scrollable-table">
+        <Table striped bordered hover>
+          <thead>
+            <tr>
+              <th>Timestamp</th>
+              <th>Level</th>
+              <th>Message</th>
             </tr>
-          ))}
-        </tbody>
-      </Table>
+          </thead>
+          <tbody>
+            {messages.map((msg, index) => (
+              <tr key={index}>
+                <td>{msg.timestamp}</td>
+                <td>{msg.level}</td>
+                <td>{msg.message}</td>
+              </tr>
+            ))}
+          </tbody>
+        </Table>
+      </div>
     </div>
   );
 }

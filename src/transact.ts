@@ -8,21 +8,15 @@ import {
     createCloseAccountInstruction,
 } from '@solana/spl-token';
 import {
-    Keypair,
     Connection,
     PublicKey,
     ComputeBudgetProgram,
-    KeyedAccountInfo,
     TransactionMessage,
     VersionedTransaction,
 } from '@solana/web3.js';
 import { createPoolKeys } from './liquidity';
 import { logger } from './utils/logger';
-import { getMinimalMarketV3, MinimalMarketLayoutV3 } from './market';
-import { MintLayout } from './types';
-import bs58 from 'bs58';
-import * as fs from 'fs';
-import * as path from 'path';
+import { getMinimalMarketV3 } from './market';
 import {
     AUTO_SELL_DELAY,
     COMMITMENT_LEVEL,
@@ -30,8 +24,6 @@ import {
     NETWORK,
 } from './constants';
 
-import { listenPools, listenOpenbook } from './raydium'
-import { getTokenBalance, getTokenBalanceQuote, checkMintable, getWalletSOLBalance } from './checks'
 import { existingTokenAccounts, saveTokenAccount } from './bot'
 
 
@@ -137,7 +129,7 @@ export async function buy(accountId: PublicKey, accountData: LiquidityStateV4, c
             preflightCommitment: TX_COMMITMENT_LEVEL,
             maxRetries: MAX_RETRY
         });
-        logger.info('Sent buy tx', { mint: accountData.baseMint, signature });
+        logger.info('Sending buy tx', { mint: accountData.baseMint, signature });
 
         confirmTransactionWithTimeout(connection, signature, blockheight, hash, TX_COMMITMENT_LEVEL, accountData)
             .then(() => {

@@ -5,6 +5,7 @@ import {
   MarketStateV3,
   Token,
   TokenAmount,
+  parseBigNumberish
 } from '@raydium-io/raydium-sdk';
 import {
   AccountLayout,
@@ -136,6 +137,11 @@ async function init(): Promise<void> {
     }
     throw new Error(`No ${quoteToken.symbol} token account found in wallet: ${wallet.publicKey}`);
   }
+
+  //TODO
+  // if (wsol_balance < parseBigNumberish(quoteAmount.currency).toNumber()) {
+  //   logger.error('not enough WSOL balance');
+  // }
 
   quoteTokenAssociatedAddress = tokenAccount.pubkey;
 

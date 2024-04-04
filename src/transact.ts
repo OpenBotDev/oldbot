@@ -63,7 +63,7 @@ const confirmTransactionWithTimeout = (connection: Connection, signature: any, b
                 reject(new Error('Error confirming buy tx')); // Reject the promise with error
             }
         }).catch(err => {
-            logger.info('didnt receive confirmation');
+            logger.error('didnt receive confirmation');
             clearTimeout(timeoutId); // Clear the timeout timer
             reject(err); // Reject the promise with the error caught from confirmTransaction
         });
@@ -106,13 +106,18 @@ export async function buy(accountId: PublicKey, accountData: LiquidityStateV4, c
         });
         let hash = latestBlockhashResult.value.blockhash;
         let blockheight = latestBlockhashResult.value.lastValidBlockHeight;
+
+        //TODO tweak and comment reasoning
+        const lamps = 421197;
+        const sunits = 101337
+
         logger.info(`Preparing buy. hash ${hash} blockheight ${blockheight}`)
         const messageV0 = new TransactionMessage({
             payerKey: wallet.publicKey,
             recentBlockhash: hash,
             instructions: [
-                ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 421197 }),
-                ComputeBudgetProgram.setComputeUnitLimit({ units: 101337 }),
+                ComputeBudgetProgram.setComputeUnitPrice({ microLamports: lamps }),
+                ComputeBudgetProgram.setComputeUnitLimit({ units: sunits }),
                 createAssociatedTokenAccountIdempotentInstruction(
                     wallet.publicKey,
                     tokenAccount.address,
@@ -142,25 +147,6 @@ export async function buy(accountId: PublicKey, accountData: LiquidityStateV4, c
                 logger.error('Failed to confirm transaction:', err.message);
             });
 
-        // //TODO loop
-        // const confirmation = await connection.confirmTransaction(
-        //     {
-        //         signature,
-        //         lastValidBlockHeight: blockheight,
-        //         blockhash: hash,
-        //     },
-        //     TX_COMMITMENT_LEVEL,
-        // );
-        // if (!confirmation.value.err) {
-        //     logger.info('Confirmed buy tx', {
-        //         mint: accountData.baseMint,
-        //         signature: signature,
-        //         url: `https://solscan.io/tx/${signature}?cluster=${NETWORK}`,
-        //     });
-        // } else {
-        //     logger.debug(confirmation.value.err);
-        //     logger.info('Error confirming buy tx', { mint: accountData.baseMint, signature });
-        // }
     } catch (e) {
         // Blockhash not found
 

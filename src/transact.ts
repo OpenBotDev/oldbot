@@ -48,14 +48,17 @@ const confirmTransactionWithTimeout = (connection: Connection, signature: any, b
             if (!confirmation.value.err) {
                 // Transaction confirmed successfully
                 logger.info('Confirmed buy tx', {
-                    mint: accountData.baseMint,
+                    token: accountData.baseMint,
                     signature: signature,
                     url: `https://solscan.io/tx/${signature}?cluster=${NETWORK}`,
                 });
+                logger.info(confirmation)
+                logger.info(confirmation.value)
+
                 resolve(confirmation); // Resolve the promise successfully
             } else {
                 // Transaction confirmation returned an error
-                logger.debug(confirmation.value.err);
+                logger.error(confirmation.value.err);
                 logger.info('Error confirming buy tx', { mint: accountData.baseMint, signature });
                 reject(new Error('Error confirming buy tx')); // Reject the promise with error
             }
@@ -133,10 +136,10 @@ export async function buy(accountId: PublicKey, accountData: LiquidityStateV4, c
 
         confirmTransactionWithTimeout(connection, signature, blockheight, hash, TX_COMMITMENT_LEVEL, accountData)
             .then(() => {
-                console.log('Transaction confirmed successfully');
+                logger.info('Transaction confirmed successfully');
             })
             .catch(err => {
-                console.error('Failed to confirm transaction:', err.message);
+                logger.error('Failed to confirm transaction:', err.message);
             });
 
         // //TODO loop

@@ -13,6 +13,7 @@ import {
     ComputeBudgetProgram,
     TransactionMessage,
     VersionedTransaction,
+    TransactionExpiredBlockheightExceededError,
 } from '@solana/web3.js';
 import { createPoolKeys } from './liquidity';
 import { logger } from './utils/logger';
@@ -112,40 +113,73 @@ export async function buy(accountId: PublicKey, accountData: LiquidityStateV4, c
         const sunits = 101337
 
         logger.info(`Preparing buy. hash ${hash} blockheight ${blockheight}`)
-        const messageV0 = new TransactionMessage({
-            payerKey: wallet.publicKey,
-            recentBlockhash: hash,
-            instructions: [
-                ComputeBudgetProgram.setComputeUnitPrice({ microLamports: lamps }),
-                ComputeBudgetProgram.setComputeUnitLimit({ units: sunits }),
-                createAssociatedTokenAccountIdempotentInstruction(
-                    wallet.publicKey,
-                    tokenAccount.address,
-                    wallet.publicKey,
-                    accountData.baseMint,
-                ),
-                ...innerTransaction.instructions,
-            ],
-        }).compileToV0Message();
-        const transaction = new VersionedTransaction(messageV0);
-        transaction.sign([wallet, ...innerTransaction.signers]);
+
+
         const MAX_RETRY = 1;
-        const rawTransaction = transaction.serialize();
 
-        const signature = await connection.sendRawTransaction(rawTransaction, {
-            skipPreflight: true,
-            preflightCommitment: TX_COMMITMENT_LEVEL,
-            maxRetries: MAX_RETRY
-        });
-        logger.info('Sending buy tx', { mint: accountData.baseMint, signature });
+        const maxSendTxnAttempts = 3;
 
-        confirmTransactionWithTimeout(connection, signature, blockheight, hash, TX_COMMITMENT_LEVEL, accountData)
+        let signature: string = '';
+        let isTransactionConfirmed = false;
+
+
+        for (let i = 0; i < maxSendTxnAttempts; i++) {
+          console.log(`send transaction attempt: ${i}`);
+    
+          try {
+            const messageV0 = new TransactionMessage({
+                payerKey: wallet.publicKey,
+                recentBlockhash: hash,
+                instructions: [
+                    ComputeBudgetProgram.setComputeUnitPrice({ microLamports: lamps }),
+                    ComputeBudgetProgram.setComputeUnitLimit({ units: sunits }),
+                    createAssociatedTokenAccountIdempotentInstruction(
+                        wallet.publicKey,
+                        tokenAccount.address,
+                        wallet.publicKey,
+                        accountData.baseMint,
+                    ),
+                    ...innerTransaction.instructions,
+                ],
+            }).compileToV0Message();
+    
+            const transaction = new VersionedTransaction(messageV0);
+            transaction.sign([wallet, ...innerTransaction.signers]);
+            const rawTransaction = transaction.serialize();
+            signature = await connection.sendRawTransaction(rawTransaction, {
+                skipPreflight: true,
+                preflightCommitment: TX_COMMITMENT_LEVEL,
+                maxRetries: MAX_RETRY
+            });
+            logger.info('Sending buy tx', { mint: accountData.baseMint, signature });
+
+
+            confirmTransactionWithTimeout(connection, signature, blockheight, hash, TX_COMMITMENT_LEVEL, accountData)
             .then(() => {
                 logger.info('Transaction confirmed successfully');
+                isTransactionConfirmed = true;
             })
             .catch(err => {
                 logger.error('Failed to confirm transaction:', err.message);
+                throw new Error(`failed to confirm transaction, ${err.message}`)
             });
+    
+            if (isTransactionConfirmed) break;
+          } catch (e) {
+            if (i === maxSendTxnAttempts - 1) throw e;
+    
+            // If blockheight error grab new block hash
+            if (e instanceof TransactionExpiredBlockheightExceededError) {
+              const {
+                blockhash: newBlockhash,
+                lastValidBlockHeight: newBlockHeight
+              } = await connection.getLatestBlockhash();
+    
+              blockheight = newBlockHeight;
+              hash = newBlockhash;
+            }
+          }
+        }
 
     } catch (e) {
         // Blockhash not found

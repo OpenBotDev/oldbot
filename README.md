@@ -2,6 +2,9 @@
 
 Sniperbot on Solana
 
+* master branch for stable
+* develop branch for newer features
+
 Roadmap
 
 * improve time of buy from launch

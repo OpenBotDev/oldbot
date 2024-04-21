@@ -44,7 +44,6 @@ import {
   FILTER_CHECK_DURATION,
   CONSECUTIVE_FILTER_MATCHES,
 } from './helpers';
-import { version } from './package.json';
 import { WarpTransactionExecutor } from './transactions/warp-transaction-executor';
 
 const connection = new Connection(RPC_ENDPOINT, {
@@ -52,24 +51,9 @@ const connection = new Connection(RPC_ENDPOINT, {
   commitment: COMMITMENT_LEVEL,
 });
 
+//TODO settings.toml
 function printDetails(wallet: Keypair, quoteToken: Token, bot: Bot) {
-  logger.info(`  
-                                        ..   :-===++++-     
-                                .-==+++++++- =+++++++++-    
-            ..:::--===+=.=:     .+++++++++++:=+++++++++:    
-    .==+++++++++++++++=:+++:    .+++++++++++.=++++++++-.    
-    .-+++++++++++++++=:=++++-   .+++++++++=:.=+++++-::-.    
-     -:+++++++++++++=:+++++++-  .++++++++-:- =+++++=-:      
-      -:++++++=++++=:++++=++++= .++++++++++- =+++++:        
-       -:++++-:=++=:++++=:-+++++:+++++====--:::::::.        
-        ::=+-:::==:=+++=::-:--::::::::::---------::.        
-         ::-:  .::::::::.  --------:::..                    
-          :-    .:.-:::.                                    
-
-          WARP DRIVE ACTIVATED 🚀🐟
-          Made with ❤️ by humans.
-          Version: ${version}                                          
-  `);
+  logger.info(`start`);
 
   const botConfig = bot.config;
 
